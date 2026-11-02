@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.vite/
+
+# OAuth クライアントの JSON（Google Cloud からダウンロードしたもの）を誤って入れない
+client_secret*.json
+credentials*.json

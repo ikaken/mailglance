@@ -1,0 +1,40 @@
+[package]
+name = "mailglance"
+version = "0.1.0"
+description = "Gmail viewer for Windows that opens links in the last active Chrome window"
+authors = ["ikaken"]
+edition = "2024"
+
+[lib]
+# The `_lib` suffix avoids a name clash between the lib and the bin on Windows.
+name = "mailglance_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["net", "io-util", "time", "sync", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+keyring = { version = "3", features = ["windows-native"] }
+base64 = "0.22"
+sha2 = "0.10"
+rand = "0.9"
+url = "2"
+encoding_rs = "0.8"
+futures = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

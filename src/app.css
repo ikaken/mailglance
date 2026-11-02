@@ -1,0 +1,85 @@
+:root {
+  --bg: #ffffff;
+  --bg-side: #f3f4f6;
+  --bg-rail: #1f2937;
+  --bg-hover: #e5e7eb;
+  --bg-active: #dbeafe;
+  --text: #111827;
+  --text-muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  --badge: #dc2626;
+  --error-bg: #fef2f2;
+  --error-text: #b91c1c;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111827;
+    --bg-side: #1a2230;
+    --bg-rail: #0b1018;
+    --bg-hover: #253042;
+    --bg-active: #1e3a5f;
+    --text: #e5e7eb;
+    --text-muted: #9ca3af;
+    --border: #2b3544;
+    --accent: #60a5fa;
+    --badge: #ef4444;
+    --error-bg: #3b1515;
+    --error-text: #fca5a5;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input {
+  font: inherit;
+  color: inherit;
+}
+
+.btn {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 5px 12px;
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
