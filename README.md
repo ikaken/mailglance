@@ -19,12 +19,17 @@ Gmail を Chrome の外で読むための Windows アプリ。メール内のリ
 
 必要なもの：Rust（stable, MSVC）、Node.js、Visual Studio Build Tools（C++）、WebView2。
 
-```bash
+```powershell
 npm install
 npm run tauri dev
 ```
 
-- `cargo` が PATH にない場合は `%USERPROFILE%\.cargo\bin` を PATH に追加する。
+- `cargo` が PATH にない場合は `%USERPROFILE%\.cargo\bin` をユーザーの PATH に追加し、PowerShell を開き直す。
+
+  ```powershell
+  [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:USERPROFILE\.cargo\bin", "User")
+  ```
+
 - Rust のテスト：`cd src-tauri && cargo test`
 - 画面の型チェック：`npm run check`
 - インストーラーの作成：`npm run tauri build`
