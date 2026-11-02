@@ -111,7 +111,12 @@ async fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
         }
         if let Some(error) = error {
             respond(&mut stream, "200 OK", "ログインが中止されました。このタブを閉じてください。").await;
-            return Err(Error::new(format!("ログインが中止されました: {error}")));
+            let hint = if error == "access_denied" {
+                "\nアプリがテストモードの場合、Google Cloud の「対象」（auth/audience）でこのアドレスをテストユーザーに追加してください。"
+            } else {
+                ""
+            };
+            return Err(Error::new(format!("ログインが中止されました: {error}{hint}")));
         }
         respond(
             &mut stream,
