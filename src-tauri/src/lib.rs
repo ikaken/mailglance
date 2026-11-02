@@ -24,8 +24,9 @@ use gmail::Gmail;
 /// Messages fetched per view.
 const PAGE_SIZE: u32 = 50;
 /// Bodies prefetched after a list refresh so opening a message is instant.
-const PREFETCH_BODIES: usize = 20;
-const CONCURRENCY: usize = 8;
+const PREFETCH_BODIES: usize = 10;
+/// Parallel API calls. Gmail's per-user quota is per minute, so bursts matter.
+const CONCURRENCY: usize = 4;
 
 struct Account {
     email: String,
@@ -222,11 +223,22 @@ fn cached_labels(state: State<'_, AppState>, email: String) -> Result<Vec<LabelR
 }
 
 /// Applies changes made elsewhere (phone, web) since the last sync, then reloads label counts.
+/// Counts cost one call per label, so they are reloaded only when the mailbox changed.
 #[tauri::command]
 async fn refresh_labels(state: State<'_, AppState>, email: String) -> Result<Vec<LabelRow>> {
     let account = state.account(&email)?;
     let gmail = state.gmail(&account).await?;
-    sync_history(&account, &gmail).await?;
+    if sync_history(&account, &gmail).await? {
+        // Kept until the counts are saved, so a failed reload is retried next time.
+        account.db.lock().unwrap().set_meta("labels_dirty", "1")?;
+    }
+    {
+        let db = account.db.lock().unwrap();
+        let cached = db.labels()?;
+        if db.meta("labels_dirty")?.is_none() && !cached.is_empty() {
+            return Ok(cached);
+        }
+    }
 
     let labels = gmail.labels().await?;
     let mut requests = Vec::new();
@@ -250,16 +262,20 @@ async fn refresh_labels(state: State<'_, AppState>, email: String) -> Result<Vec
 
     let mut db = account.db.lock().unwrap();
     db.replace_labels(&rows)?;
+    db.delete_meta("labels_dirty")?;
     db.labels()
 }
 
-async fn sync_history(account: &Account, gmail: &Gmail<'_>) -> Result<()> {
+/// Returns whether anything changed since the last sync (or the state was reset).
+async fn sync_history(account: &Account, gmail: &Gmail<'_>) -> Result<bool> {
     let start = account.db.lock().unwrap().meta("history_id")?;
     let Some(start) = start else {
         let profile = gmail.profile().await?;
-        return account.db.lock().unwrap().set_meta("history_id", &profile.history_id);
+        account.db.lock().unwrap().set_meta("history_id", &profile.history_id)?;
+        return Ok(true);
     };
 
+    let mut changed = false;
     let mut page_token: Option<String> = None;
     loop {
         let page = match gmail.history(&start, page_token.as_deref()).await {
@@ -269,12 +285,15 @@ async fn sync_history(account: &Account, gmail: &Gmail<'_>) -> Result<()> {
                 let profile = gmail.profile().await?;
                 let db = account.db.lock().unwrap();
                 db.clear_messages()?;
-                return db.set_meta("history_id", &profile.history_id);
+                db.set_meta("history_id", &profile.history_id)?;
+                return Ok(true);
             }
             Err(e) => return Err(e),
         };
         let db = account.db.lock().unwrap();
-        for record in page.history.unwrap_or_default() {
+        let records = page.history.unwrap_or_default();
+        changed |= !records.is_empty();
+        for record in records {
             for m in record.messages_deleted.unwrap_or_default() {
                 db.delete(&m.message.id)?;
             }
@@ -293,7 +312,7 @@ async fn sync_history(account: &Account, gmail: &Gmail<'_>) -> Result<()> {
         db.set_meta("history_id", &page.history_id)?;
         match page.next_page_token {
             Some(t) => page_token = Some(t),
-            None => return Ok(()),
+            None => return Ok(changed),
         }
     }
 }

@@ -1,11 +1,15 @@
 //! Thin Gmail REST API client.
 
+use std::time::Duration;
+
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::error::{Error, Result};
 
 const BASE: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
+/// Retries after 2 s and 8 s; beyond that the per-minute quota needs a real pause.
+const MAX_RETRIES: u32 = 2;
 /// Headers shown in the message list and the message header.
 const LIST_HEADERS: [&str; 4] = ["From", "To", "Subject", "Date"];
 
@@ -121,14 +125,34 @@ impl Part {
 }
 
 impl Gmail<'_> {
+    /// Retries rate-limit errors (429, or 403 with a quota reason) with backoff.
     async fn send<T: DeserializeOwned>(&self, req: reqwest::RequestBuilder) -> Result<T> {
-        let resp = req.bearer_auth(&self.token).send().await?;
-        let status = resp.status();
-        if status.is_success() {
-            return Ok(resp.json().await?);
+        let req = req.bearer_auth(&self.token);
+        let mut delay = Duration::from_secs(2);
+        for attempt in 0.. {
+            let attempt_req = req.try_clone().ok_or_else(|| Error::new("request not cloneable"))?;
+            let resp = attempt_req.send().await?;
+            let status = resp.status();
+            if status.is_success() {
+                return Ok(resp.json().await?);
+            }
+            let text = resp.text().await.unwrap_or_default();
+            let rate_limited = status.as_u16() == 429
+                || (status.as_u16() == 403 && (text.contains("rateLimitExceeded") || text.contains("Quota exceeded")));
+            if rate_limited && attempt < MAX_RETRIES {
+                tokio::time::sleep(delay).await;
+                delay *= 4;
+                continue;
+            }
+            if rate_limited {
+                return Err(Error::http(
+                    status.as_u16(),
+                    "Gmail の利用上限（1 分あたり）に達しました。1 分ほど待つと自動で再開します。",
+                ));
+            }
+            return Err(Error::http(status.as_u16(), format!("Gmail API エラー {status}: {text}")));
         }
-        let text = resp.text().await.unwrap_or_default();
-        Err(Error::http(status.as_u16(), format!("Gmail API エラー {status}: {text}")))
+        unreachable!()
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {

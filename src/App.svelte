@@ -124,6 +124,13 @@
     }
   }
 
+  /** Adjusts unread counts locally; reloading every label would eat into the API quota. */
+  function bumpUnread(email: string, labelIds: string[], delta: number) {
+    labels[email] = (labels[email] ?? []).map((l) =>
+      labelIds.includes(l.id) ? { ...l, unread: Math.max(0, l.unread + delta) } : l,
+    );
+  }
+
   async function select(m: Summary) {
     selected = m;
     if (!m.label_ids.includes("UNREAD")) return;
@@ -133,21 +140,22 @@
       m.label_ids = ids;
       messages = messages.map((x) => (x.id === m.id ? { ...x, label_ids: ids } : x));
       if (selected?.id === m.id) selected = { ...m, label_ids: ids };
-      refreshLabels(email);
+      bumpUnread(email, ids, -1);
     } catch (e) {
       error = errorText(e);
     }
   }
 
   async function markUnread(m: Summary) {
-    const ids = await api.setUnread(current, m.id, true).catch((e) => {
+    const email = current;
+    const ids = await api.setUnread(email, m.id, true).catch((e) => {
       error = errorText(e);
       return null;
     });
     if (!ids) return;
     messages = messages.map((x) => (x.id === m.id ? { ...x, label_ids: ids } : x));
     selected = null;
-    refreshLabels(current);
+    bumpUnread(email, ids, +1);
   }
 
   async function toggleFavorite(l: Label) {
