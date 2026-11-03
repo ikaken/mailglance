@@ -20,6 +20,8 @@ pub struct LabelRow {
     pub kind: String,
     pub unread: i64,
     pub total: i64,
+    /// Gmail label color (background), if the user set one.
+    pub color: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -84,13 +86,15 @@ impl Cache {
              CREATE TABLE IF NOT EXISTS lists(key TEXT PRIMARY KEY, ids TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )?;
+        // Added after the first release; fails harmlessly when the column exists.
+        let _ = conn.execute("ALTER TABLE labels ADD COLUMN color TEXT", []);
         Ok(Cache { conn })
     }
 
     pub fn labels(&self) -> Result<Vec<LabelRow>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, name, kind, unread, total FROM labels ORDER BY name")?;
+            .prepare("SELECT id, name, kind, unread, total, color FROM labels ORDER BY name")?;
         let rows = stmt.query_map([], |r| {
             Ok(LabelRow {
                 id: r.get(0)?,
@@ -98,6 +102,7 @@ impl Cache {
                 kind: r.get(2)?,
                 unread: r.get(3)?,
                 total: r.get(4)?,
+                color: r.get(5)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -108,8 +113,8 @@ impl Cache {
         tx.execute("DELETE FROM labels", [])?;
         for l in labels {
             tx.execute(
-                "INSERT INTO labels(id, name, kind, unread, total) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![l.id, l.name, l.kind, l.unread, l.total],
+                "INSERT INTO labels(id, name, kind, unread, total, color) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![l.id, l.name, l.kind, l.unread, l.total, l.color],
             )?;
         }
         tx.commit()?;

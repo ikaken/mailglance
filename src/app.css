@@ -1,33 +1,61 @@
+/* Colors follow Gmail's current (Material 3) web UI. */
 :root {
-  --bg: #ffffff;
-  --bg-side: #f3f4f6;
-  --bg-rail: #1f2937;
-  --bg-hover: #e5e7eb;
-  --bg-active: #dbeafe;
-  --text: #111827;
-  --text-muted: #6b7280;
-  --border: #e5e7eb;
-  --accent: #2563eb;
-  --badge: #dc2626;
-  --error-bg: #fef2f2;
-  --error-text: #b91c1c;
+  --page: #f6f8fc;
+  --card: #ffffff;
+  --text: #1f1f1f;
+  --text-2: #444746;
+  --text-3: #5f6368;
+  --divider: #e7eaee;
+  --hover: rgba(68, 71, 70, 0.08);
+  --nav-active: #d3e3fd;
+  --nav-active-text: #001d35;
+  --compose: #c2e7ff;
+  --compose-text: #001d35;
+  --search: #eaf1fb;
+  --search-focus: #ffffff;
+  --row-read: #f2f6fc;
+  --row-unread: #ffffff;
+  --row-selected: #c2dbff;
+  --row-shadow: inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60, 64, 67, 0.3),
+    0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  --accent: #0b57d0;
+  --star: #f4b400;
+  --chip: #e1e3e1;
+  --badge: #d93025;
+  --banner: #fef7e0;
+  --error-bg: #fce8e6;
+  --error-text: #b3261e;
+  --outline: #747775;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #111827;
-    --bg-side: #1a2230;
-    --bg-rail: #0b1018;
-    --bg-hover: #253042;
-    --bg-active: #1e3a5f;
-    --text: #e5e7eb;
-    --text-muted: #9ca3af;
-    --border: #2b3544;
-    --accent: #60a5fa;
-    --badge: #ef4444;
-    --error-bg: #3b1515;
-    --error-text: #fca5a5;
+    --page: #1b1b1b;
+    --card: #232323;
+    --text: #e3e3e3;
+    --text-2: #c4c7c5;
+    --text-3: #9aa0a6;
+    --divider: #3a3a3a;
+    --hover: rgba(227, 227, 227, 0.08);
+    --nav-active: #004a77;
+    --nav-active-text: #c2e7ff;
+    --compose: #004a77;
+    --compose-text: #c2e7ff;
+    --search: #2d2f31;
+    --search-focus: #3c4043;
+    --row-read: #1e1e1e;
+    --row-unread: #2a2b2d;
+    --row-selected: #1f3b5e;
+    --row-shadow: inset 1px 0 0 #444, inset -1px 0 0 #444, 0 1px 3px 0 rgba(0, 0, 0, 0.6);
+    --accent: #a8c7fa;
+    --star: #fdd663;
+    --chip: #444746;
+    --badge: #f28b82;
+    --banner: #3c3524;
+    --error-bg: #3b1d1b;
+    --error-text: #f2b8b5;
+    --outline: #8e918f;
     color-scheme: dark;
   }
 }
@@ -44,17 +72,38 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background: var(--page);
   color: var(--text);
-  font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+  font-family: "Google Sans", Roboto, "Segoe UI", "Yu Gothic UI", Meiryo, sans-serif;
   font-size: 14px;
   overflow: hidden;
+}
+
+/* Thin scrollbars like Gmail's, but always visible. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.45);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(128, 128, 128, 0.7);
 }
 
 button {
   font: inherit;
   color: inherit;
   cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
 }
 
 input {
@@ -62,24 +111,67 @@ input {
   color: inherit;
 }
 
-.btn {
-  border: 1px solid var(--border);
-  background: var(--bg);
-  border-radius: 6px;
-  padding: 5px 12px;
+/* Round 40px icon button, as in Gmail toolbars. */
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  flex-shrink: 0;
 }
 
-.btn:hover {
-  background: var(--bg-hover);
+.icon-btn:hover {
+  background: var(--hover);
 }
 
-.btn.primary {
+.icon-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+  background: none;
+}
+
+.icon-btn.small {
+  width: 32px;
+  height: 32px;
+}
+
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 20px 0 16px;
+  border: 1px solid var(--outline);
+  border-radius: 18px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.pill-btn:hover {
+  background: var(--hover);
+}
+
+.pill-btn.filled {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--card);
 }
 
-.btn:disabled {
+.pill-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.error-banner {
+  margin: 8px 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

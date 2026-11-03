@@ -36,6 +36,13 @@ pub struct Label {
     pub kind: Option<String>,
     pub messages_total: Option<i64>,
     pub messages_unread: Option<i64>,
+    pub color: Option<LabelColor>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LabelColor {
+    pub background_color: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -49,8 +56,17 @@ struct IdRef {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct MessageList {
     messages: Option<Vec<IdRef>>,
+    next_page_token: Option<String>,
+    result_size_estimate: Option<i64>,
+}
+
+pub struct ListPage {
+    pub ids: Vec<String>,
+    pub next_page_token: Option<String>,
+    pub estimate: i64,
 }
 
 #[derive(Deserialize, Default)]
@@ -190,17 +206,33 @@ impl Gmail<'_> {
         self.get(&format!("/labels/{id}"), &[], cost::LABELS_GET).await
     }
 
-    pub async fn list_ids(&self, label: Option<&str>, q: Option<&str>, max: u32) -> Result<Vec<String>> {
+    pub async fn list(
+        &self,
+        label: Option<&str>,
+        q: Option<&str>,
+        page_token: Option<&str>,
+        max: u32,
+    ) -> Result<ListPage> {
         let max = max.to_string();
         let mut query = vec![("maxResults", max.as_str())];
         if let Some(label) = label {
             query.push(("labelIds", label));
+            if label == "SPAM" || label == "TRASH" {
+                query.push(("includeSpamTrash", "true"));
+            }
         }
-        if let Some(q) = q {
+        if let Some(q) = q.filter(|q| !q.is_empty()) {
             query.push(("q", q));
         }
+        if let Some(token) = page_token {
+            query.push(("pageToken", token));
+        }
         let list: MessageList = self.get("/messages", &query, cost::MESSAGES_LIST).await?;
-        Ok(list.messages.unwrap_or_default().into_iter().map(|m| m.id).collect())
+        Ok(ListPage {
+            ids: list.messages.unwrap_or_default().into_iter().map(|m| m.id).collect(),
+            next_page_token: list.next_page_token,
+            estimate: list.result_size_estimate.unwrap_or(0),
+        })
     }
 
     pub async fn metadata(&self, id: &str) -> Result<Message> {
@@ -232,5 +264,10 @@ impl Gmail<'_> {
         let body = serde_json::json!({ "addLabelIds": add, "removeLabelIds": remove });
         let req = self.http.post(format!("{BASE}/messages/{id}/modify")).json(&body);
         self.send(req, cost::MESSAGES_MODIFY).await
+    }
+
+    pub async fn trash(&self, id: &str) -> Result<Message> {
+        let req = self.http.post(format!("{BASE}/messages/{id}/trash"));
+        self.send(req, cost::MESSAGES_TRASH).await
     }
 }

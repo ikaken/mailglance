@@ -1,319 +1,179 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import {
-    api,
-    displayName,
-    errorText,
-    formatDate,
-    gmailUrls,
-    type AppInfo,
-    type Label,
-    type Summary,
-    type View,
-  } from "./api";
+  import { avatarColor } from "./api";
+  import Icon from "./Icon.svelte";
+  import MessageList from "./MessageList.svelte";
   import MessageView from "./MessageView.svelte";
   import Setup from "./Setup.svelte";
+  import Sidebar from "./Sidebar.svelte";
+  import { store } from "./store.svelte";
 
-  /** Polls Gmail for changes made on other devices. */
-  const SYNC_INTERVAL_MS = 60_000;
-  const INBOX: View = { kind: "label", id: "INBOX" };
-  const SYSTEM_NAMES: Record<string, string> = {
-    INBOX: "受信トレイ",
-    SENT: "送信済み",
-    STARRED: "スター付き",
-    IMPORTANT: "重要",
-    DRAFT: "下書き",
-    SPAM: "迷惑メール",
-    TRASH: "ゴミ箱",
-  };
+  let searchInput = $state<HTMLInputElement>();
 
-  let info = $state<AppInfo | null>(null);
-  let showSettings = $state(false);
-  let current = $state("");
-  let labels = $state<Record<string, Label[]>>({});
-  let view = $state<View>(INBOX);
-  let messages = $state<Summary[]>([]);
-  let selected = $state<Summary | null>(null);
-  let searchText = $state("");
-  let syncing = $state(false);
-  let error = $state("");
-  let showAllLabels = $state(false);
+  onMount(() => store.init());
 
-  const account = $derived(info?.accounts.find((a) => a.email === current));
-  const currentLabels = $derived(labels[current] ?? []);
-  const labelName = (l: Label) => SYSTEM_NAMES[l.id] ?? l.name;
-  const unreadOf = (email: string, id: string) =>
-    labels[email]?.find((l) => l.id === id)?.unread ?? 0;
-  const userLabels = $derived(
-    currentLabels.filter((l) => l.kind === "user").sort((a, b) => a.name.localeCompare(b.name, "ja")),
-  );
-  const favorites = $derived(
-    (account?.favorites ?? [])
-      .map((id) => currentLabels.find((l) => l.id === id))
-      .filter((l): l is Label => !!l),
-  );
-  const unreadLabels = $derived(
-    userLabels.filter((l) => l.unread > 0 && !account?.favorites.includes(l.id)),
-  );
-  const viewKey = (v: View) => (v.kind === "label" ? `label:${v.id}` : `search:${v.q}`);
-  const isSentView = $derived(view.kind === "label" && view.id === "SENT");
-
-  async function loadInfo(select?: string) {
-    info = await api.appInfo();
-    if (!info.configured || info.accounts.length === 0) {
-      showSettings = true;
+  // Gmail keyboard shortcuts.
+  function onKey(ev: KeyboardEvent) {
+    const target = ev.target as HTMLElement;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+      if (ev.key === "Escape") target.blur();
       return;
     }
-    if (select || !info.accounts.some((a) => a.email === current)) {
-      await switchAccount(select ?? info.accounts[0].email);
+    if (ev.ctrlKey || ev.altKey || ev.metaKey || store.showSettings || store.needsSetup) return;
+    // Enter on a focused button is that button's click.
+    if (ev.key === "Enter" && target instanceof HTMLButtonElement) return;
+    const m = store.openMessage ?? store.messages[store.cursor];
+    const handled = () => ev.preventDefault();
+    switch (ev.key) {
+      case "j":
+        store.step(1);
+        return handled();
+      case "k":
+        store.step(-1);
+        return handled();
+      case "o":
+      case "Enter":
+        if (m) store.open(m);
+        return handled();
+      case "u":
+        store.close();
+        return handled();
+      case "/":
+        searchInput?.focus();
+        return handled();
+      case "c":
+        store.compose();
+        return handled();
+      case "n":
+        store.nextPage();
+        return handled();
+      case "p":
+        store.prevPage();
+        return handled();
+    }
+    if (!m) return;
+    switch (ev.key) {
+      case "e":
+        store.archive(m);
+        return handled();
+      case "#":
+        store.trash(m);
+        return handled();
+      case "s":
+        store.toggleStar(m);
+        return handled();
+      case "U":
+        store.toggleUnread(m);
+        return handled();
+      case "r":
+      case "f":
+        store.reply(m);
+        return handled();
     }
   }
 
-  async function switchAccount(email: string) {
-    current = email;
-    selected = null;
-    view = INBOX;
-    searchText = "";
-    labels[email] = await api.cachedLabels(email).catch(() => []);
-    await openView(INBOX);
-    refreshLabels(email);
-  }
-
-  /** Shows the cached list at once, then replaces it with the server's. */
-  async function openView(v: View) {
-    view = v;
-    selected = null;
-    const email = current;
-    const key = viewKey(v);
-    messages = await api.cachedMessages(email, v).catch(() => []);
-    try {
-      syncing = true;
-      const fresh = await api.refreshMessages(email, v);
-      if (current === email && viewKey(view) === key) messages = fresh;
-      error = "";
-    } catch (e) {
-      error = errorText(e);
-    } finally {
-      syncing = false;
-    }
-  }
-
-  async function refreshLabels(email: string) {
-    try {
-      labels[email] = await api.refreshLabels(email);
-    } catch (e) {
-      if (email === current) error = errorText(e);
-    }
-  }
-
-  async function syncAll() {
-    if (!info) return;
-    // Labels first: it applies read/label changes from other devices to the cache.
-    await Promise.all(info.accounts.map((a) => refreshLabels(a.email)));
-    if (!current) return;
-    const email = current;
-    const key = viewKey(view);
-    try {
-      const fresh = await api.refreshMessages(email, view);
-      if (current === email && viewKey(view) === key) {
-        messages = fresh;
-        if (selected) selected = fresh.find((m) => m.id === selected!.id) ?? selected;
-      }
-    } catch (e) {
-      error = errorText(e);
-    }
-  }
-
-  /** Adjusts unread counts locally; reloading every label would eat into the API quota. */
-  function bumpUnread(email: string, labelIds: string[], delta: number) {
-    labels[email] = (labels[email] ?? []).map((l) =>
-      labelIds.includes(l.id) ? { ...l, unread: Math.max(0, l.unread + delta) } : l,
-    );
-  }
-
-  async function select(m: Summary) {
-    selected = m;
-    if (!m.label_ids.includes("UNREAD")) return;
-    const email = current;
-    try {
-      const ids = await api.setUnread(email, m.id, false);
-      m.label_ids = ids;
-      messages = messages.map((x) => (x.id === m.id ? { ...x, label_ids: ids } : x));
-      if (selected?.id === m.id) selected = { ...m, label_ids: ids };
-      bumpUnread(email, ids, -1);
-    } catch (e) {
-      error = errorText(e);
-    }
-  }
-
-  async function markUnread(m: Summary) {
-    const email = current;
-    const ids = await api.setUnread(email, m.id, true).catch((e) => {
-      error = errorText(e);
-      return null;
-    });
-    if (!ids) return;
-    messages = messages.map((x) => (x.id === m.id ? { ...x, label_ids: ids } : x));
-    selected = null;
-    bumpUnread(email, ids, +1);
-  }
-
-  async function toggleFavorite(l: Label) {
-    if (!account) return;
-    const on = !account.favorites.includes(l.id);
-    await api.setFavorite(current, l.id, on);
-    info = await api.appInfo();
-  }
-
-  function search(ev: SubmitEvent) {
+  function submitSearch(ev: SubmitEvent) {
     ev.preventDefault();
-    const q = searchText.trim();
-    openView(q ? { kind: "search", q } : INBOX);
+    store.search(store.searchText);
+    searchInput?.blur();
   }
-
-  const isActive = (id: string) => view.kind === "label" && view.id === id;
-
-  function onKey(ev: KeyboardEvent) {
-    if (ev.target instanceof HTMLInputElement) return;
-    if (ev.key === "j" || ev.key === "k") {
-      const i = messages.findIndex((m) => m.id === selected?.id);
-      const next = messages[ev.key === "j" ? i + 1 : Math.max(0, i - 1)];
-      if (next) select(next);
-    } else if (ev.key === "/") {
-      ev.preventDefault();
-      document.querySelector<HTMLInputElement>(".search input")?.focus();
-    }
-  }
-
-  onMount(() => {
-    loadInfo();
-    const timer = setInterval(syncAll, SYNC_INTERVAL_MS);
-    return () => clearInterval(timer);
-  });
 </script>
 
 <svelte:window onkeydown={onKey} />
 
-{#if !info}
+{#if !store.info}
   <div class="center">読み込み中…</div>
-{:else if showSettings || !info.configured || info.accounts.length === 0}
-  <Setup
-    {info}
-    onchange={(added) => loadInfo(added)}
-    onclose={info.configured && info.accounts.length ? () => (showSettings = false) : undefined}
-  />
+{:else if store.needsSetup}
+  <div class="setup-page"><Setup /></div>
 {:else}
-  <div class="layout">
-    <nav class="rail">
-      {#each info.accounts as a (a.email)}
-        <button
-          class="avatar"
-          class:active={a.email === current}
-          title={a.email}
-          onclick={() => switchAccount(a.email)}
-        >
-          {a.email[0].toUpperCase()}
-          {#if unreadOf(a.email, "INBOX") > 0}
-            <span class="badge">{unreadOf(a.email, "INBOX") > 99 ? "99+" : unreadOf(a.email, "INBOX")}</span>
-          {/if}
+  <div class="app" class:collapsed={store.sidebarCollapsed}>
+    <header class="topbar">
+      <div class="brand">
+        <button class="icon-btn" title="メインメニュー" onclick={() => store.toggleSidebar()}>
+          <Icon name="menu" size={24} />
         </button>
-      {/each}
-      <div class="spacer"></div>
-      <button class="rail-btn" title="設定・アカウント追加" onclick={() => (showSettings = true)}>⚙</button>
-    </nav>
+        <span class="logo"><Icon name="allMail" size={28} /></span>
+        <span class="product">mailglance</span>
+      </div>
 
-    <aside class="labels">
-      <div class="account-name" title={current}>{current}</div>
-      <button class="compose btn" onclick={() => api.openGmail(current, gmailUrls.compose())}>✎ 作成</button>
-
-      {#snippet labelRow(l: Label, star = false)}
-        <div class="label-row" class:active={isActive(l.id)}>
-          <button class="label-btn" onclick={() => openView({ kind: "label", id: l.id })}>
-            <span class="name">{labelName(l)}</span>
-            {#if l.unread > 0}<span class="count">{l.unread}</span>{/if}
+      <form class="search" onsubmit={submitSearch}>
+        <button class="icon-btn" type="submit" title="検索"><Icon name="search" size={24} /></button>
+        <input bind:this={searchInput} bind:value={store.searchText} placeholder="メールを検索" />
+        {#if store.searchText || store.view.kind === "search"}
+          <button class="icon-btn" type="button" title="検索をクリア" onclick={() => store.search("")}>
+            <Icon name="close" size={24} />
           </button>
-          {#if star}
-            <button
-              class="star"
-              class:on={account?.favorites.includes(l.id)}
-              title="お気に入り"
-              onclick={() => toggleFavorite(l)}>★</button
-            >
-          {/if}
-        </div>
-      {/snippet}
-
-      {#each currentLabels.filter((l) => l.id === "INBOX") as l}{@render labelRow(l)}{/each}
-      {#if favorites.length}
-        <h3>お気に入り</h3>
-        {#each favorites as l (l.id)}{@render labelRow(l, true)}{/each}
-      {/if}
-      {#if unreadLabels.length}
-        <h3>未読あり</h3>
-        {#each unreadLabels as l (l.id)}{@render labelRow(l, true)}{/each}
-      {/if}
-      <h3>その他</h3>
-      {#each currentLabels.filter((l) => l.id === "SENT" || l.id === "STARRED") as l}{@render labelRow(l)}{/each}
-      <button class="toggle" onclick={() => (showAllLabels = !showAllLabels)}>
-        {showAllLabels ? "▾" : "▸"} すべてのラベル
-      </button>
-      {#if showAllLabels}
-        {#each userLabels as l (l.id)}{@render labelRow(l, true)}{/each}
-      {/if}
-      <div class="spacer"></div>
-      <button class="link" onclick={() => api.openGmail(current, gmailUrls.filters())}>振り分け設定（Gmail）</button>
-      <button class="link" onclick={() => api.openGmail(current)}>Gmail を開く</button>
-    </aside>
-
-    <section class="list">
-      <form class="search" onsubmit={search}>
-        <input bind:value={searchText} placeholder="検索（Gmail と同じ書き方）  /" />
+        {/if}
       </form>
-      <div class="status">
-        {#if view.kind === "search"}「{view.q}」の検索結果{/if}
-        {#if syncing}<span class="sync">更新中…</span>{/if}
-      </div>
-      {#if error}<div class="error" title={error}>{error}</div>{/if}
-      <div class="rows">
-        {#each messages as m (m.id)}
-          <button
-            class="row"
-            class:unread={m.label_ids.includes("UNREAD")}
-            class:active={selected?.id === m.id}
-            onclick={() => select(m)}
-          >
-            <div class="line1">
-              <span class="from">{displayName(isSentView ? `To: ${m.to}` : m.from)}</span>
-              <span class="date">{formatDate(m.date)}</span>
-            </div>
-            <div class="subject">{m.subject || "（件名なし）"}</div>
-            <div class="snippet">{m.snippet}</div>
-          </button>
-        {:else}
-          <div class="empty">{syncing ? "" : "メールはありません"}</div>
-        {/each}
-      </div>
-    </section>
 
-    <main class="reader">
-      {#if selected}
-        {#key selected.id}
-          <MessageView email={current} message={selected} />
-        {/key}
-        <button class="unread-btn btn" onclick={() => selected && markUnread(selected)}>未読にする</button>
-      {:else}
-        <div class="center muted">メールを選んでください</div>
-      {/if}
-    </main>
+      <div class="top-actions">
+        <button
+          class="icon-btn"
+          title={store.splitPane ? "閲覧ウィンドウ：なし" : "閲覧ウィンドウ：右"}
+          onclick={() => store.toggleSplitPane()}
+        >
+          <Icon name={store.splitPane ? "noSplit" : "splitPane"} size={24} />
+        </button>
+        <button class="icon-btn" title="設定" onclick={() => (store.showSettings = !store.showSettings)}>
+          <Icon name="settings" size={24} />
+        </button>
+        <button
+          class="me"
+          title={store.current}
+          style:background={avatarColor(store.current)}
+          onclick={() => (store.showSettings = true)}
+        >
+          {store.current[0]?.toUpperCase()}
+        </button>
+      </div>
+    </header>
+
+    <div class="main">
+      <nav class="accounts" aria-label="アカウント">
+        {#each store.info.accounts as a (a.email)}
+          {@const n = store.unreadOf(a.email, "INBOX")}
+          <button
+            class="account"
+            class:active={a.email === store.current}
+            title={a.email}
+            onclick={() => store.switchAccount(a.email)}
+          >
+            <span class="avatar" style:background={avatarColor(a.email)}>{a.email[0].toUpperCase()}</span>
+            {#if n > 0}<span class="badge">{n > 999 ? "999+" : n}</span>{/if}
+          </button>
+        {/each}
+        <button class="icon-btn add" title="アカウントを追加" onclick={() => (store.showSettings = true)}>
+          <Icon name="add" size={24} />
+        </button>
+      </nav>
+
+      <Sidebar />
+
+      <main class="card">
+        {#if store.showSettings}
+          <div class="settings-scroll"><Setup /></div>
+        {:else if store.splitPane}
+          <div class="split">
+            <MessageList compact />
+            <div class="pane">
+              {#if store.openMessage}
+                {#key store.openMessage.id}<MessageView message={store.openMessage} />{/key}
+              {:else}
+                <div class="center muted">メールが選択されていません</div>
+              {/if}
+            </div>
+          </div>
+        {:else if store.openMessage}
+          {#key store.openMessage.id}<MessageView message={store.openMessage} showBack />{/key}
+        {:else}
+          <MessageList />
+        {/if}
+      </main>
+    </div>
   </div>
 {/if}
 
 <style>
-  .layout {
-    display: grid;
-    grid-template-columns: 64px 220px 360px 1fr;
-    height: 100%;
-  }
   .center {
     display: flex;
     align-items: center;
@@ -321,237 +181,165 @@
     height: 100%;
   }
   .muted {
-    color: var(--text-muted);
+    color: var(--text-3);
   }
-  .spacer {
-    flex: 1;
+  .setup-page {
+    height: 100%;
+    overflow-y: auto;
   }
 
-  .rail {
-    background: var(--bg-rail);
+  /* Every column gets min-height: 0 so its own content scrolls instead of the page. */
+  .app {
+    display: grid;
+    grid-template-rows: 64px minmax(0, 1fr);
+    height: 100%;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 8px 8px 4px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    width: 300px;
+    flex-shrink: 0;
+    padding-left: 12px;
+  }
+  .collapsed .brand {
+    width: auto;
+  }
+  .logo {
+    display: flex;
+    color: var(--accent);
+    margin: 0 6px 0 8px;
+  }
+  .product {
+    font-size: 22px;
+    color: var(--text-2);
+    letter-spacing: -0.2px;
+  }
+  .collapsed .product {
+    margin-right: 16px;
+  }
+  .search {
+    flex: 1;
+    max-width: 720px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px;
+    border-radius: 24px;
+    background: var(--search);
+  }
+  .search:focus-within {
+    background: var(--search-focus);
+    box-shadow: 0 1px 1px 0 rgba(65, 69, 73, 0.3), 0 1px 3px 1px rgba(65, 69, 73, 0.15);
+  }
+  .search input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: none;
+    background: none;
+    outline: none;
+    font-size: 16px;
+  }
+  .search input::placeholder {
+    color: var(--text-2);
+  }
+  .top-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .me {
+    width: 32px;
+    height: 32px;
+    margin: 0 8px;
+    border-radius: 50%;
+    color: #fff;
+    font-weight: 500;
+  }
+
+  .main {
+    display: grid;
+    grid-template-columns: 64px auto minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .accounts {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 12px 0;
-    gap: 10px;
+    gap: 12px;
+    padding-top: 12px;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .account {
+    position: relative;
+    padding: 3px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+  }
+  .account.active {
+    border-color: var(--accent);
   }
   .avatar {
-    position: relative;
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    border: 2px solid transparent;
-    background: #4b5563;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: #fff;
-    font-weight: 600;
-    font-size: 17px;
-  }
-  .avatar.active {
-    border-color: #fff;
-    background: var(--accent);
+    font-weight: 500;
+    font-size: 16px;
   }
   .badge {
     position: absolute;
-    top: -6px;
-    right: -8px;
+    top: -4px;
+    right: -10px;
+    min-width: 20px;
+    padding: 1px 5px;
+    border-radius: 10px;
     background: var(--badge);
     color: #fff;
     font-size: 11px;
-    border-radius: 9px;
-    padding: 1px 5px;
-    min-width: 18px;
-  }
-  .rail-btn {
-    background: none;
-    border: none;
-    color: #9ca3af;
-    font-size: 20px;
+    font-weight: 600;
+    border: 2px solid var(--page);
   }
 
-  .labels {
-    background: var(--bg-side);
-    border-right: 1px solid var(--border);
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    margin: 0 16px 16px 0;
+    min-height: 0;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    padding: 12px 8px;
+  }
+  .settings-scroll {
     overflow-y: auto;
-  }
-  .account-name {
-    font-weight: 600;
-    padding: 0 8px 8px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .compose {
-    margin: 0 4px 10px;
-  }
-  h3 {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin: 14px 8px 4px;
-    font-weight: 600;
-  }
-  .label-row {
-    display: flex;
-    align-items: center;
-    border-radius: 6px;
-  }
-  .label-row:hover {
-    background: var(--bg-hover);
-  }
-  .label-row.active {
-    background: var(--bg-active);
-  }
-  .label-btn {
+    min-height: 0;
     flex: 1;
+  }
+  .split {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(340px, 40%) minmax(0, 1fr);
+  }
+  .pane {
+    min-height: 0;
     min-width: 0;
-    display: flex;
-    justify-content: space-between;
-    background: none;
-    border: none;
-    padding: 5px 8px;
-    text-align: left;
-  }
-  .name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .count {
-    font-weight: 600;
-    margin-left: 6px;
-  }
-  .star {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    opacity: 0;
-    padding: 0 6px;
-  }
-  .label-row:hover .star,
-  .star.on {
-    opacity: 1;
-  }
-  .star.on {
-    color: #f59e0b;
-  }
-  .toggle,
-  .link {
-    background: none;
-    border: none;
-    text-align: left;
-    padding: 5px 8px;
-    color: var(--text-muted);
-  }
-  .toggle {
-    margin-top: 10px;
-  }
-  .link:hover,
-  .toggle:hover {
-    color: var(--text);
-  }
-
-  .list {
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--border);
-    min-width: 0;
-  }
-  .search {
-    padding: 10px;
-    border-bottom: 1px solid var(--border);
-  }
-  .search input {
-    width: 100%;
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-side);
-  }
-  .status {
-    font-size: 12px;
-    color: var(--text-muted);
-    padding: 4px 12px;
-    display: flex;
-    justify-content: space-between;
-    min-height: 22px;
-  }
-  .error {
-    font-size: 12px;
-    color: var(--error-text);
-    background: var(--error-bg);
-    padding: 6px 12px;
-    max-height: 60px;
-    overflow: hidden;
-  }
-  .rows {
-    overflow-y: auto;
-    flex: 1;
-  }
-  .row {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    border-bottom: 1px solid var(--border);
-    padding: 8px 12px;
-  }
-  .row:hover {
-    background: var(--bg-hover);
-  }
-  .row.active {
-    background: var(--bg-active);
-  }
-  .line1 {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .from,
-  .subject,
-  .snippet {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .date {
-    font-size: 12px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-  .subject {
-    margin-top: 2px;
-  }
-  .snippet {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
-  .row.unread .from,
-  .row.unread .subject {
-    font-weight: 700;
-  }
-  .row.unread {
-    border-left: 3px solid var(--accent);
-    padding-left: 9px;
-  }
-  .empty {
-    padding: 24px;
-    text-align: center;
-    color: var(--text-muted);
-  }
-
-  .reader {
-    position: relative;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .unread-btn {
-    position: absolute;
-    right: 18px;
-    bottom: 14px;
-    font-size: 12px;
+    border-left: 1px solid var(--divider);
   }
 </style>

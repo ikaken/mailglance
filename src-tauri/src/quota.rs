@@ -24,6 +24,7 @@ pub mod cost {
     pub const MESSAGES_GET: u32 = 20;
     pub const MESSAGES_GET_FULL: u32 = 60;
     pub const MESSAGES_MODIFY: u32 = 5;
+    pub const MESSAGES_TRASH: u32 = 20;
     pub const ATTACHMENTS_GET: u32 = 20;
 }
 

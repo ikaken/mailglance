@@ -23,8 +23,8 @@ use error::{Error, Result};
 use gmail::Gmail;
 use quota::Quota;
 
-/// Messages fetched per view. Each costs 20 quota units the first time.
-const PAGE_SIZE: u32 = 30;
+/// Messages per page, as in Gmail. Each costs 20 quota units the first time it is fetched.
+const PAGE_SIZE: u32 = 50;
 /// Parallel API calls. Gmail's per-user quota is per minute, so bursts matter.
 const CONCURRENCY: usize = 4;
 
@@ -261,6 +261,7 @@ async fn refresh_labels(state: State<'_, AppState>, email: String) -> Result<Vec
             kind: l.kind.unwrap_or_default(),
             unread: l.messages_unread.unwrap_or(0),
             total: l.messages_total.unwrap_or(0),
+            color: l.color.and_then(|c| c.background_color),
         })
         .collect();
 
@@ -326,18 +327,31 @@ fn cached_messages(state: State<'_, AppState>, email: String, view: View) -> Res
     state.account(&email)?.db.lock().unwrap().list(&view.key())
 }
 
+#[derive(Serialize)]
+struct MessagePage {
+    messages: Vec<Summary>,
+    next_page_token: Option<String>,
+    /// Gmail's estimate of the total number of results.
+    estimate: i64,
+}
+
+/// One page of a view from the server. Only metadata of messages not yet cached is fetched.
+/// The first page is also saved as the view's cached list.
 #[tauri::command]
 async fn refresh_messages(
     state: State<'_, AppState>,
     email: String,
     view: View,
-) -> Result<Vec<Summary>> {
+    page_token: Option<String>,
+) -> Result<MessagePage> {
     let account = state.account(&email)?;
     let gmail = state.gmail(&account).await?;
-    let ids = match &view {
-        View::Label { id } => gmail.list_ids(Some(id), None, PAGE_SIZE).await?,
-        View::Search { q } => gmail.list_ids(None, Some(q), PAGE_SIZE).await?,
+    let token = page_token.as_deref();
+    let page = match &view {
+        View::Label { id } => gmail.list(Some(id), None, token, PAGE_SIZE).await?,
+        View::Search { q } => gmail.list(None, Some(q), token, PAGE_SIZE).await?,
     };
+    let ids = page.ids;
 
     let known = account.db.lock().unwrap().known_ids(&ids)?;
     // Futures are built eagerly: closures borrowing `gmail` trip up the Send check of commands.
@@ -350,16 +364,20 @@ async fn refresh_messages(
         .try_collect()
         .await?;
 
-    let list = {
-        let db = account.db.lock().unwrap();
-        for m in &fetched {
-            db.upsert(&Summary::from_message(m))?;
-        }
+    let db = account.db.lock().unwrap();
+    for m in &fetched {
+        db.upsert(&Summary::from_message(m))?;
+    }
+    if page_token.is_none() {
         db.set_list(&view.key(), &ids)?;
-        db.list(&view.key())?
-    };
-
-    Ok(list)
+    }
+    let mut messages = Vec::with_capacity(ids.len());
+    for id in &ids {
+        if let Some(s) = db.summary(id)? {
+            messages.push(s);
+        }
+    }
+    Ok(MessagePage { messages, next_page_token: page.next_page_token, estimate: page.estimate })
 }
 
 /// Body from the cache, or fetched and cached.
@@ -395,14 +413,32 @@ async fn get_body(state: State<'_, AppState>, email: String, id: String) -> Resu
     Ok(MessageBody { html: body.html, attachments: body.attachments })
 }
 
-/// Marks a message read (or unread) in Gmail and in the cache.
+/// Adds/removes labels (read/unread, star, archive) in Gmail and in the cache.
+/// Returns the message's labels afterwards.
 #[tauri::command]
-async fn set_unread(state: State<'_, AppState>, email: String, id: String, unread: bool) -> Result<Vec<String>> {
+async fn modify_message(
+    state: State<'_, AppState>,
+    email: String,
+    id: String,
+    add: Vec<String>,
+    remove: Vec<String>,
+) -> Result<Vec<String>> {
     let account = state.account(&email)?;
     let gmail = state.gmail(&account).await?;
-    let (add, remove): (&[&str], &[&str]) = if unread { (&["UNREAD"], &[]) } else { (&[], &["UNREAD"]) };
-    let msg = gmail.modify(&id, add, remove).await?;
+    let add: Vec<&str> = add.iter().map(String::as_str).collect();
+    let remove: Vec<&str> = remove.iter().map(String::as_str).collect();
+    let msg = gmail.modify(&id, &add, &remove).await?;
     let label_ids = msg.label_ids.unwrap_or_default();
+    account.db.lock().unwrap().set_label_ids(&id, &label_ids)?;
+    Ok(label_ids)
+}
+
+/// Moves a message to the trash (Gmail deletes it after 30 days).
+#[tauri::command]
+async fn trash_message(state: State<'_, AppState>, email: String, id: String) -> Result<Vec<String>> {
+    let account = state.account(&email)?;
+    let gmail = state.gmail(&account).await?;
+    let label_ids = gmail.trash(&id).await?.label_ids.unwrap_or_default();
     account.db.lock().unwrap().set_label_ids(&id, &label_ids)?;
     Ok(label_ids)
 }
@@ -443,7 +479,8 @@ pub fn run() {
             cached_messages,
             refresh_messages,
             get_body,
-            set_unread,
+            modify_message,
+            trash_message,
             open_link,
             open_gmail,
         ])
