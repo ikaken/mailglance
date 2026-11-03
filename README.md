@@ -38,7 +38,9 @@ npm run tauri dev
 
 ## データの保存場所
 
-- 設定：`%APPDATA%\com.ikaken.mailglance\config.json`（クライアント ID・シークレット、アカウント一覧）
-- キャッシュ：同じフォルダの `cache\*.sqlite`
-- リフレッシュトークン：Windows の資格情報マネージャー（`mailglance`）
-- Gmail ウィンドウのログイン状態：同じフォルダの `webview\<アカウント>`
+- 設定：`%APPDATA%\com.ikaken.mailglance\config.json`（クライアント ID・シークレット、アカウント一覧（メールアドレスとピン留めしたラベル））。暗号化はしていない。
+- メールのキャッシュ：同じフォルダの `cache\<アカウント>.sqlite`（アカウントごとに 1 ファイル）
+- リフレッシュトークン：Windows の資格情報マネージャー（`mailglance`、メールアドレスごとに 1 件）
+- Gmail ウィンドウのログイン状態：同じフォルダの `webview\<アカウント>`（Gmail ウィンドウを初めて開いたときに作られる）
+- Gmail のパスワードはどこにも保存しない。ログインはブラウザで行い、アプリが受け取るのはトークンだけ。
+- 開発版（`npm run tauri dev`）とインストール版は同じ場所を使うので、設定とアカウントは共通。
