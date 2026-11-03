@@ -21,14 +21,10 @@ use cache::{Cache, LabelRow, Summary};
 use config::{AccountConfig, Config};
 use error::{Error, Result};
 use gmail::Gmail;
-use quota::{Quota, cost};
+use quota::Quota;
 
 /// Messages fetched per view. Each costs 20 quota units the first time.
 const PAGE_SIZE: u32 = 30;
-/// Bodies prefetched after a list refresh so opening a message is instant (60 units each).
-const PREFETCH_BODIES: usize = 5;
-/// Quota units prefetch leaves free for what the user does next.
-const PREFETCH_RESERVE: u32 = 2_000;
 /// Parallel API calls. Gmail's per-user quota is per minute, so bursts matter.
 const CONCURRENCY: usize = 4;
 
@@ -332,7 +328,6 @@ fn cached_messages(state: State<'_, AppState>, email: String, view: View) -> Res
 
 #[tauri::command]
 async fn refresh_messages(
-    app: AppHandle,
     state: State<'_, AppState>,
     email: String,
     view: View,
@@ -364,22 +359,6 @@ async fn refresh_messages(
         db.list(&view.key())?
     };
 
-    let prefetch: Vec<String> = list.iter().take(PREFETCH_BODIES).map(|s| s.id.clone()).collect();
-    let account = account.clone();
-    tauri::async_runtime::spawn(async move {
-        let state = app.state::<AppState>();
-        for id in prefetch {
-            let cached = account.db.lock().unwrap().body(&id).ok().flatten().is_some();
-            if cached {
-                continue;
-            }
-            // Prefetch is optional; it never eats into the quota the user needs.
-            if !account.quota.has_room(cost::MESSAGES_GET_FULL, PREFETCH_RESERVE).await {
-                break;
-            }
-            let _ = load_body(&state, &account, &id).await;
-        }
-    });
     Ok(list)
 }
 

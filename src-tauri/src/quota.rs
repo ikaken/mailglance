@@ -56,13 +56,6 @@ impl Quota {
             tokio::time::sleep(wait + Duration::from_millis(50)).await;
         }
     }
-
-    /// For optional work (prefetch): whether `units` fit while `reserve` units stay free
-    /// for what the user is doing. Records nothing; the call itself still acquires.
-    pub async fn has_room(&self, units: u32, reserve: u32) -> bool {
-        let mut spent = self.spent.lock().await;
-        used(&mut spent, Instant::now()) + units + reserve <= UNITS_PER_MINUTE
-    }
 }
 
 #[cfg(test)]
@@ -73,17 +66,8 @@ mod tests {
     async fn waits_when_budget_is_spent() {
         let q = Quota::default();
         q.acquire(UNITS_PER_MINUTE).await;
-        assert!(!q.has_room(1, 0).await);
         let start = Instant::now();
         q.acquire(10).await;
         assert!(Instant::now().duration_since(start) >= WINDOW);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn prefetch_keeps_reserve() {
-        let q = Quota::default();
-        q.acquire(UNITS_PER_MINUTE - 1_000).await;
-        assert!(!q.has_room(60, 1_000).await);
-        assert!(q.has_room(60, 500).await);
     }
 }
