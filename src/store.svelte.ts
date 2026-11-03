@@ -40,15 +40,16 @@ class Store {
   labels = $state<Record<string, Label[]>>({});
   view = $state<View>(INBOX);
   messages = $state<Summary[]>([]);
-  /** pageTokens[i] fetches page i; the first page has no token. */
-  pageTokens = $state<(string | undefined)[]>([undefined]);
-  pageIndex = $state(0);
-  hasNext = $state(false);
+  /** Fetches the next (older) batch; undefined once the whole view is loaded. */
+  nextToken = $state<string | undefined>(undefined);
+  /** Whether batches after the first have been appended. */
+  private extended = false;
   estimate = $state(0);
   openId = $state<string | null>(null);
   /** Row highlighted for keyboard navigation. */
   cursor = $state(0);
   loading = $state(false);
+  loadingMore = $state(false);
   error = $state("");
   searchText = $state("");
   splitPane = $state(loadPref("splitPane", false));
@@ -105,31 +106,42 @@ class Store {
     this.refreshLabels(email);
   }
 
-  /** Shows the cached first page at once, then the server's. */
+  /** Shows the cached first batch at once, then the server's. */
   async openView(v: View) {
     this.view = v;
     this.showSettings = false;
     this.openId = null;
     this.cursor = 0;
-    this.pageTokens = [undefined];
-    this.pageIndex = 0;
-    this.hasNext = false;
+    this.nextToken = undefined;
+    this.extended = false;
     this.estimate = v.kind === "label" ? (this.currentLabels.find((l) => l.id === v.id)?.total ?? 0) : 0;
     this.messages = await api.cachedMessages(this.current, v).catch(() => []);
-    await this.loadPage(0);
+    await this.refreshTop();
   }
 
-  async loadPage(index: number) {
+  private isCurrent(email: string, key: string) {
+    return email === this.current && key === viewKey(this.view);
+  }
+
+  /** Fetches the newest batch. Older batches already shown stay below it, refreshed from the cache. */
+  async refreshTop() {
     const email = this.current;
     const key = viewKey(this.view);
     this.loading = true;
     try {
-      const page = await api.refreshMessages(email, this.view, this.pageTokens[index]);
-      if (email !== this.current || key !== viewKey(this.view)) return;
-      this.messages = page.messages;
-      this.pageIndex = index;
-      this.hasNext = !!page.next_page_token;
-      if (page.next_page_token) this.pageTokens[index + 1] = page.next_page_token;
+      const page = await api.refreshMessages(email, this.view);
+      if (!this.isCurrent(email, key)) return;
+      if (this.extended) {
+        const top = new Set(page.messages.map((m) => m.id));
+        const rest = this.messages.filter((m) => !top.has(m.id)).map((m) => m.id);
+        const older = await api.cachedSummaries(email, rest);
+        if (!this.isCurrent(email, key)) return;
+        this.messages = [...page.messages, ...older.filter((m) => this.inView(m.label_ids))];
+      } else {
+        this.messages = page.messages;
+        this.nextToken = page.next_page_token ?? undefined;
+      }
+      this.cursor = Math.min(this.cursor, Math.max(0, this.messages.length - 1));
       // Gmail's estimate is rough for labels; the label's own count is exact.
       const label = this.view.kind === "label" ? this.view.id : null;
       this.estimate = this.currentLabels.find((l) => l.id === label)?.total ?? page.estimate;
@@ -141,19 +153,25 @@ class Store {
     }
   }
 
-  nextPage() {
-    if (this.hasNext && !this.loading) {
-      this.openId = null;
-      this.cursor = 0;
-      this.loadPage(this.pageIndex + 1);
-    }
-  }
-
-  prevPage() {
-    if (this.pageIndex > 0 && !this.loading) {
-      this.openId = null;
-      this.cursor = 0;
-      this.loadPage(this.pageIndex - 1);
+  /** Appends the next older batch, as the list scrolls near its end. */
+  async loadMore() {
+    const token = this.nextToken;
+    if (!token || this.loadingMore) return;
+    const email = this.current;
+    const key = viewKey(this.view);
+    this.loadingMore = true;
+    try {
+      const page = await api.refreshMessages(email, this.view, token);
+      if (!this.isCurrent(email, key) || token !== this.nextToken) return;
+      const have = new Set(this.messages.map((m) => m.id));
+      this.messages = [...this.messages, ...page.messages.filter((m) => !have.has(m.id))];
+      this.nextToken = page.next_page_token ?? undefined;
+      this.extended = true;
+      this.error = "";
+    } catch (e) {
+      this.error = errorText(e);
+    } finally {
+      this.loadingMore = false;
     }
   }
 
@@ -169,7 +187,7 @@ class Store {
     if (!this.info || this.needsSetup) return;
     // Labels first: it applies read/label changes from other devices to the cache.
     await Promise.all(this.info.accounts.map((a) => this.refreshLabels(a.email)));
-    if (this.current && !this.showSettings) await this.loadPage(this.pageIndex);
+    if (this.current && !this.showSettings) await this.refreshTop();
   }
 
   search(q: string) {
@@ -196,6 +214,7 @@ class Store {
     if (i < 0) return;
     this.cursor = i;
     if (this.openId || this.splitPane) this.open(this.messages[i]);
+    if (i >= this.messages.length - 5) this.loadMore();
   }
 
   /** Applies label changes, keeping unread counts in step locally. */

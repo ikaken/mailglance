@@ -18,8 +18,21 @@
         : "すべてのメール"
       : store.labelName(store.view.id),
   );
-  const first = $derived(store.pageIndex * 50 + 1);
-  const last = $derived(store.pageIndex * 50 + store.messages.length);
+  const shown = $derived(store.messages.length);
+  /** Older batches load once the list is scrolled within this distance of its end. */
+  const LOAD_AHEAD_PX = 600;
+
+  function checkLoadMore() {
+    const el = rowsEl;
+    if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - LOAD_AHEAD_PX) store.loadMore();
+  }
+
+  // A batch that doesn't fill the window gives no scroll to wait for.
+  $effect(() => {
+    void store.messages.length;
+    void store.nextToken;
+    checkLoadMore();
+  });
 
   function who(m: Summary): string {
     if (showRecipient) {
@@ -59,24 +72,18 @@
     <span class="title">{title}</span>
     {#if store.loading}<span class="loading">更新中…</span>{/if}
     <div class="spacer"></div>
-    {#if store.messages.length}
+    {#if shown}
       <span class="range">
-        {first.toLocaleString()}–{last.toLocaleString()} / {store.estimate > last
+        1–{shown.toLocaleString()} / {store.estimate > shown
           ? store.estimate.toLocaleString()
-          : last.toLocaleString()}{store.hasNext && store.estimate <= last ? "+" : ""}
+          : shown.toLocaleString()}{store.nextToken && store.estimate <= shown ? "+" : ""}
       </span>
     {/if}
-    <button class="icon-btn" title="新しいメール" disabled={store.pageIndex === 0} onclick={() => store.prevPage()}>
-      <Icon name="chevronLeft" />
-    </button>
-    <button class="icon-btn" title="古いメール" disabled={!store.hasNext} onclick={() => store.nextPage()}>
-      <Icon name="chevronRight" />
-    </button>
   </div>
 
   {#if store.error}<div class="error-banner">{store.error}</div>{/if}
 
-  <div class="rows" class:compact bind:this={rowsEl}>
+  <div class="rows" class:compact bind:this={rowsEl} onscroll={checkLoadMore}>
     {#each store.messages as m, i (m.id)}
       {@const unread = m.label_ids.includes("UNREAD")}
       {@const starred = m.label_ids.includes("STARRED")}
@@ -129,6 +136,7 @@
     {:else}
       <div class="empty">{store.loading ? "" : "メールはありません"}</div>
     {/each}
+    {#if store.loadingMore}<div class="more">読み込み中…</div>{/if}
   </div>
 </div>
 
@@ -321,6 +329,12 @@
   .empty {
     padding: 40px;
     text-align: center;
+    color: var(--text-3);
+  }
+  .more {
+    padding: 12px;
+    text-align: center;
+    font-size: 12px;
     color: var(--text-3);
   }
 </style>

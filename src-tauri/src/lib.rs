@@ -327,6 +327,20 @@ fn cached_messages(state: State<'_, AppState>, email: String, view: View) -> Res
     state.account(&email)?.db.lock().unwrap().list(&view.key())
 }
 
+/// Messages already on screen, re-read from the cache after a sync. Ids no longer cached are skipped.
+#[tauri::command]
+fn cached_summaries(state: State<'_, AppState>, email: String, ids: Vec<String>) -> Result<Vec<Summary>> {
+    let account = state.account(&email)?;
+    let db = account.db.lock().unwrap();
+    let mut out = Vec::with_capacity(ids.len());
+    for id in &ids {
+        if let Some(s) = db.summary(id)? {
+            out.push(s);
+        }
+    }
+    Ok(out)
+}
+
 #[derive(Serialize)]
 struct MessagePage {
     messages: Vec<Summary>,
@@ -477,6 +491,7 @@ pub fn run() {
             cached_labels,
             refresh_labels,
             cached_messages,
+            cached_summaries,
             refresh_messages,
             get_body,
             modify_message,

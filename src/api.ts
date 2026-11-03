@@ -61,6 +61,8 @@ export const api = {
   refreshLabels: (email: string) => invoke<Label[]>("refresh_labels", { email }),
   cachedMessages: (email: string, view: View) =>
     invoke<Summary[]>("cached_messages", { email, view }),
+  cachedSummaries: (email: string, ids: string[]) =>
+    invoke<Summary[]>("cached_summaries", { email, ids }),
   refreshMessages: (email: string, view: View, pageToken?: string) =>
     invoke<MessagePage>("refresh_messages", { email, view, pageToken: pageToken ?? null }),
   getBody: (email: string, id: string) => invoke<MessageBody>("get_body", { email, id }),

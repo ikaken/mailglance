@@ -44,12 +44,6 @@
       case "c":
         store.compose();
         return handled();
-      case "n":
-        store.nextPage();
-        return handled();
-      case "p":
-        store.prevPage();
-        return handled();
     }
     if (!m) return;
     switch (ev.key) {
