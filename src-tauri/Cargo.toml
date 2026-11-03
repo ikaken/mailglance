@@ -29,6 +29,9 @@ url = "2"
 encoding_rs = "0.8"
 futures = "0.3"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "test-util"] }
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 

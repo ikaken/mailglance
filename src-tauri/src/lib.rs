@@ -5,6 +5,7 @@ mod config;
 mod error;
 mod gmail;
 mod links;
+mod quota;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -20,11 +21,14 @@ use cache::{Cache, LabelRow, Summary};
 use config::{AccountConfig, Config};
 use error::{Error, Result};
 use gmail::Gmail;
+use quota::{Quota, cost};
 
-/// Messages fetched per view.
-const PAGE_SIZE: u32 = 50;
-/// Bodies prefetched after a list refresh so opening a message is instant.
-const PREFETCH_BODIES: usize = 10;
+/// Messages fetched per view. Each costs 20 quota units the first time.
+const PAGE_SIZE: u32 = 30;
+/// Bodies prefetched after a list refresh so opening a message is instant (60 units each).
+const PREFETCH_BODIES: usize = 5;
+/// Quota units prefetch leaves free for what the user does next.
+const PREFETCH_RESERVE: u32 = 2_000;
 /// Parallel API calls. Gmail's per-user quota is per minute, so bursts matter.
 const CONCURRENCY: usize = 4;
 
@@ -32,6 +36,7 @@ struct Account {
     email: String,
     db: Mutex<Cache>,
     token: tokio::sync::Mutex<Option<(String, Instant)>>,
+    quota: Quota,
 }
 
 struct AppState {
@@ -70,24 +75,25 @@ impl AppState {
             email: email.to_string(),
             db: Mutex::new(Cache::open(&self.db_path(email))?),
             token: tokio::sync::Mutex::new(None),
+            quota: Quota::default(),
         });
         accounts.insert(email.to_string(), account.clone());
         Ok(account)
     }
 
     /// API client with a valid access token, refreshing it when needed.
-    async fn gmail(&self, account: &Account) -> Result<Gmail<'_>> {
+    async fn gmail<'a>(&'a self, account: &'a Account) -> Result<Gmail<'a>> {
         let mut token = account.token.lock().await;
         if let Some((t, expires)) = token.as_ref()
             && *expires > Instant::now() + Duration::from_secs(60)
         {
-            return Ok(Gmail { http: &self.http, token: t.clone() });
+            return Ok(Gmail { http: &self.http, token: t.clone(), quota: &account.quota });
         }
         let (id, secret) = self.client()?;
         let refresh = auth::load_refresh_token(&account.email)?;
         let t = auth::refresh(&self.http, &id, &secret, &refresh).await?;
         *token = Some((t.access_token.clone(), Instant::now() + Duration::from_secs(t.expires_in)));
-        Ok(Gmail { http: &self.http, token: t.access_token })
+        Ok(Gmail { http: &self.http, token: t.access_token, quota: &account.quota })
     }
 }
 
@@ -165,7 +171,9 @@ async fn add_account(app: AppHandle, state: State<'_, AppState>) -> Result<Strin
     let refresh = tokens
         .refresh_token
         .ok_or_else(|| Error::new("リフレッシュトークンを受け取れませんでした。"))?;
-    let gmail = Gmail { http: &state.http, token: tokens.access_token.clone() };
+    // The account isn't known yet; one profile call doesn't need shared pacing.
+    let quota = Quota::default();
+    let gmail = Gmail { http: &state.http, token: tokens.access_token.clone(), quota: &quota };
     let email = gmail.profile().await?.email_address;
     auth::save_refresh_token(&email, &refresh)?;
 
@@ -357,9 +365,18 @@ async fn refresh_messages(
     };
 
     let prefetch: Vec<String> = list.iter().take(PREFETCH_BODIES).map(|s| s.id.clone()).collect();
+    let account = account.clone();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
         for id in prefetch {
+            let cached = account.db.lock().unwrap().body(&id).ok().flatten().is_some();
+            if cached {
+                continue;
+            }
+            // Prefetch is optional; it never eats into the quota the user needs.
+            if !account.quota.has_room(cost::MESSAGES_GET_FULL, PREFETCH_RESERVE).await {
+                break;
+            }
             let _ = load_body(&state, &account, &id).await;
         }
     });

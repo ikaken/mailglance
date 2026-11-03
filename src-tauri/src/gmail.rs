@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::error::{Error, Result};
+use crate::quota::{Quota, cost};
 
 const BASE: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 /// Retries after 2 s and 8 s; beyond that the per-minute quota needs a real pause.
@@ -16,6 +17,7 @@ const LIST_HEADERS: [&str; 4] = ["From", "To", "Subject", "Date"];
 pub struct Gmail<'a> {
     pub http: &'a reqwest::Client,
     pub token: String,
+    pub quota: &'a Quota,
 }
 
 #[derive(Deserialize)]
@@ -126,13 +128,25 @@ impl Part {
 
 impl Gmail<'_> {
     /// Retries rate-limit errors (429, or 403 with a quota reason) with backoff.
-    async fn send<T: DeserializeOwned>(&self, req: reqwest::RequestBuilder) -> Result<T> {
+    /// Every call first waits for room in the per-minute quota (see `quota`).
+    async fn send<T: DeserializeOwned>(&self, req: reqwest::RequestBuilder, units: u32) -> Result<T> {
         let req = req.bearer_auth(&self.token);
         let mut delay = Duration::from_secs(2);
         for attempt in 0.. {
             let attempt_req = req.try_clone().ok_or_else(|| Error::new("request not cloneable"))?;
+            self.quota.acquire(units).await;
             let resp = attempt_req.send().await?;
             let status = resp.status();
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[gmail] {:?} {} {}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+                resp.url().path().trim_start_matches("/gmail/v1/users/me"),
+                status.as_u16()
+            );
             if status.is_success() {
                 return Ok(resp.json().await?);
             }
@@ -155,21 +169,25 @@ impl Gmail<'_> {
         unreachable!()
     }
 
-    async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {
-        self.send(self.http.get(format!("{BASE}{path}")).query(query)).await
+    async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, &str)], units: u32) -> Result<T> {
+        self.send(self.http.get(format!("{BASE}{path}")).query(query), units).await
     }
 
     pub async fn profile(&self) -> Result<Profile> {
-        self.get("/profile", &[]).await
+        self.get("/profile", &[], cost::GET_PROFILE).await
     }
 
     pub async fn labels(&self) -> Result<Vec<Label>> {
-        Ok(self.get::<LabelList>("/labels", &[]).await?.labels.unwrap_or_default())
+        Ok(self
+            .get::<LabelList>("/labels", &[], cost::LABELS_LIST)
+            .await?
+            .labels
+            .unwrap_or_default())
     }
 
     /// The list endpoint omits counts; the per-label endpoint has them.
     pub async fn label(&self, id: &str) -> Result<Label> {
-        self.get(&format!("/labels/{id}"), &[]).await
+        self.get(&format!("/labels/{id}"), &[], cost::LABELS_GET).await
     }
 
     pub async fn list_ids(&self, label: Option<&str>, q: Option<&str>, max: u32) -> Result<Vec<String>> {
@@ -181,24 +199,24 @@ impl Gmail<'_> {
         if let Some(q) = q {
             query.push(("q", q));
         }
-        let list: MessageList = self.get("/messages", &query).await?;
+        let list: MessageList = self.get("/messages", &query, cost::MESSAGES_LIST).await?;
         Ok(list.messages.unwrap_or_default().into_iter().map(|m| m.id).collect())
     }
 
     pub async fn metadata(&self, id: &str) -> Result<Message> {
         let mut query = vec![("format", "metadata")];
         query.extend(LIST_HEADERS.iter().map(|h| ("metadataHeaders", *h)));
-        self.get(&format!("/messages/{id}"), &query).await
+        self.get(&format!("/messages/{id}"), &query, cost::MESSAGES_GET).await
     }
 
     pub async fn full(&self, id: &str) -> Result<Message> {
-        self.get(&format!("/messages/{id}"), &[("format", "full")]).await
+        self.get(&format!("/messages/{id}"), &[("format", "full")], cost::MESSAGES_GET_FULL)
+            .await
     }
 
     pub async fn attachment(&self, message_id: &str, attachment_id: &str) -> Result<String> {
-        let a: Attachment = self
-            .get(&format!("/messages/{message_id}/attachments/{attachment_id}"), &[])
-            .await?;
+        let path = format!("/messages/{message_id}/attachments/{attachment_id}");
+        let a: Attachment = self.get(&path, &[], cost::ATTACHMENTS_GET).await?;
         Ok(a.data)
     }
 
@@ -207,12 +225,12 @@ impl Gmail<'_> {
         if let Some(page) = page {
             query.push(("pageToken", page));
         }
-        self.get("/history", &query).await
+        self.get("/history", &query, cost::HISTORY_LIST).await
     }
 
     pub async fn modify(&self, id: &str, add: &[&str], remove: &[&str]) -> Result<Message> {
         let body = serde_json::json!({ "addLabelIds": add, "removeLabelIds": remove });
-        self.send(self.http.post(format!("{BASE}/messages/{id}/modify")).json(&body))
-            .await
+        let req = self.http.post(format!("{BASE}/messages/{id}/modify")).json(&body);
+        self.send(req, cost::MESSAGES_MODIFY).await
     }
 }
