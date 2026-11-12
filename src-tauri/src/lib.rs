@@ -327,6 +327,21 @@ fn cached_messages(state: State<'_, AppState>, email: String, view: View) -> Res
     state.account(&email)?.db.lock().unwrap().list(&view.key())
 }
 
+/// Summaries from the cache only (no API calls), in the order of `ids`; unknown ids are skipped.
+/// The list view uses this to pick up changes the history sync wrote to the cache.
+#[tauri::command]
+fn cached_summaries(state: State<'_, AppState>, email: String, ids: Vec<String>) -> Result<Vec<Summary>> {
+    let account = state.account(&email)?;
+    let db = account.db.lock().unwrap();
+    let mut out = Vec::with_capacity(ids.len());
+    for id in &ids {
+        if let Some(s) = db.summary(id)? {
+            out.push(s);
+        }
+    }
+    Ok(out)
+}
+
 #[derive(Serialize)]
 struct MessagePage {
     messages: Vec<Summary>,
@@ -477,6 +492,7 @@ pub fn run() {
             cached_labels,
             refresh_labels,
             cached_messages,
+            cached_summaries,
             refresh_messages,
             get_body,
             modify_message,

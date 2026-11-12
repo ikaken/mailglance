@@ -124,7 +124,7 @@
 
 <style>
   .sidebar {
-    width: 256px;
+    width: var(--sidebar-w, 256px);
     display: flex;
     flex-direction: column;
     min-height: 0;
