@@ -47,6 +47,8 @@ export interface MessageBody {
   attachments: Attachment[];
 }
 
+export type ComposeKind = "reply" | "reply_all" | "forward";
+
 export type View = { kind: "label"; id: string } | { kind: "search"; q: string };
 
 export const api = {
@@ -70,6 +72,8 @@ export const api = {
     invoke<string[]>("modify_message", { email, id, add, remove }),
   trashMessage: (email: string, id: string) => invoke<string[]>("trash_message", { email, id }),
   openLink: (email: string, url: string) => invoke<void>("open_link", { email, url }),
+  composeFrom: (email: string, id: string, kind: ComposeKind) =>
+    invoke<void>("compose_from", { email, id, kind }),
   openGmail: (email: string, url = "") => invoke<void>("open_gmail", { email, url }),
 };
 

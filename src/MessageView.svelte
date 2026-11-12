@@ -118,7 +118,7 @@
       <Icon name={unread ? "markRead" : "markUnread"} />
     </button>
     <div class="spacer"></div>
-    <button class="icon-btn" title="Gmail で開く" onclick={() => store.reply(message)}>
+    <button class="icon-btn" title="Gmail で開く" onclick={() => store.openInGmail(message)}>
       <Icon name="openInNew" />
     </button>
   </div>
@@ -147,7 +147,14 @@
       >
         <Icon name={starred ? "star" : "starBorder"} />
       </button>
-      <button class="icon-btn" title="返信（r）" onclick={() => store.reply(message)}><Icon name="reply" /></button>
+      <button
+        class="icon-btn"
+        title="全員に返信（a）"
+        disabled={store.composing}
+        onclick={() => store.composeFrom(message, "reply_all")}
+      >
+        <Icon name="replyAll" />
+      </button>
     </div>
 
     {#if hasRemoteImages && !showImages}
@@ -176,7 +183,7 @@
           <div class="att-title">添付ファイル {body.attachments.length} 件（保存は Gmail の画面から）</div>
           <div class="att-list">
             {#each body.attachments as a}
-              <button class="att" title="Gmail で開く" onclick={() => store.reply(message)}>
+              <button class="att" title="Gmail で開く" onclick={() => store.openInGmail(message)}>
                 <Icon name="attach" size={18} />
                 <span class="att-name">{a.filename}</span>
                 <span class="att-size">{formatSize(a.size)}</span>
@@ -187,8 +194,15 @@
       {/if}
 
       <div class="actions">
-        <button class="pill-btn" onclick={() => store.reply(message)}><Icon name="reply" />返信</button>
-        <button class="pill-btn" onclick={() => store.reply(message)}><Icon name="forward" />転送</button>
+        <button class="pill-btn" disabled={store.composing} onclick={() => store.composeFrom(message, "reply")}>
+          <Icon name="reply" />返信
+        </button>
+        <button class="pill-btn" disabled={store.composing} onclick={() => store.composeFrom(message, "reply_all")}>
+          <Icon name="replyAll" />全員に返信
+        </button>
+        <button class="pill-btn" disabled={store.composing} onclick={() => store.composeFrom(message, "forward")}>
+          <Icon name="forward" />転送
+        </button>
       </div>
     {/if}
   </div>

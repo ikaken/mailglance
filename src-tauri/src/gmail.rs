@@ -9,10 +9,14 @@ use crate::error::{Error, Result};
 use crate::quota::{Quota, cost};
 
 const BASE: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
+const UPLOAD_BASE: &str = "https://gmail.googleapis.com/upload/gmail/v1/users/me";
 /// Retries after 2 s and 8 s; beyond that the per-minute quota needs a real pause.
 const MAX_RETRIES: u32 = 2;
 /// Headers shown in the message list and the message header.
 const LIST_HEADERS: [&str; 4] = ["From", "To", "Subject", "Date"];
+/// Headers needed to address and thread a reply.
+const REPLY_HEADERS: [&str; 9] =
+    ["From", "To", "Cc", "Reply-To", "Subject", "Date", "Message-ID", "References", "In-Reply-To"];
 
 pub struct Gmail<'a> {
     pub http: &'a reqwest::Client,
@@ -103,6 +107,11 @@ pub struct Body {
     pub size: Option<i64>,
     pub data: Option<String>,
     pub attachment_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct Draft {
+    pub message: Message,
 }
 
 #[derive(Deserialize)]
@@ -239,6 +248,33 @@ impl Gmail<'_> {
         let mut query = vec![("format", "metadata")];
         query.extend(LIST_HEADERS.iter().map(|h| ("metadataHeaders", *h)));
         self.get(&format!("/messages/{id}"), &query, cost::MESSAGES_GET).await
+    }
+
+    pub async fn reply_headers(&self, id: &str) -> Result<Message> {
+        let mut query = vec![("format", "metadata")];
+        query.extend(REPLY_HEADERS.iter().map(|h| ("metadataHeaders", *h)));
+        self.get(&format!("/messages/{id}"), &query, cost::MESSAGES_GET).await
+    }
+
+    /// Creates a draft from a base64url RFC 822 message; `thread_id` keeps a reply in its thread.
+    pub async fn create_draft(&self, raw: &str, thread_id: Option<&str>) -> Result<Draft> {
+        let mut message = serde_json::json!({ "raw": raw });
+        if let Some(t) = thread_id {
+            message["threadId"] = t.into();
+        }
+        let req = self.http.post(format!("{BASE}/drafts")).json(&serde_json::json!({ "message": message }));
+        self.send(req, cost::DRAFTS_CREATE).await
+    }
+
+    /// Creates a draft from a raw RFC 822 message by media upload, which takes up to 35 MB
+    /// (the JSON form is for small messages). The draft is not part of any thread.
+    pub async fn create_draft_upload(&self, rfc822: Vec<u8>) -> Result<Draft> {
+        let req = self
+            .http
+            .post(format!("{UPLOAD_BASE}/drafts?uploadType=media"))
+            .header("Content-Type", "message/rfc822")
+            .body(rfc822);
+        self.send(req, cost::DRAFTS_CREATE).await
     }
 
     pub async fn full(&self, id: &str) -> Result<Message> {

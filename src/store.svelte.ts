@@ -1,4 +1,4 @@
-import { api, errorText, gmailUrls, type AppInfo, type Label, type Summary, type View } from "./api";
+import { api, errorText, gmailUrls, type AppInfo, type ComposeKind, type Label, type Summary, type View } from "./api";
 
 /** Polls Gmail for changes made on other devices. */
 const SYNC_INTERVAL_MS = 60_000;
@@ -307,8 +307,24 @@ class Store {
     api.openGmail(this.current, gmailUrls.compose());
   }
 
-  reply(m: Summary) {
-    api.openGmail(this.current, gmailUrls.thread(m.thread_id));
+  /** Opens the message's thread in the account's Gmail window. */
+  openInGmail(m: Summary) {
+    api.openGmail(this.current, gmailUrls.thread(m.thread_id)).catch((e) => (this.error = errorText(e)));
+  }
+
+  /** Creates a reply / reply-all / forward draft and opens it in the Gmail window. */
+  composing = $state(false);
+  async composeFrom(m: Summary, kind: ComposeKind) {
+    if (this.composing) return;
+    this.composing = true;
+    try {
+      await api.composeFrom(this.current, m.id, kind);
+      this.error = "";
+    } catch (e) {
+      this.error = errorText(e);
+    } finally {
+      this.composing = false;
+    }
   }
 
   toggleSplitPane() {

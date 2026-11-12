@@ -60,8 +60,13 @@
         store.toggleUnread(m);
         return handled();
       case "r":
+        store.composeFrom(m, "reply");
+        return handled();
+      case "a":
+        store.composeFrom(m, "reply_all");
+        return handled();
       case "f":
-        store.reply(m);
+        store.composeFrom(m, "forward");
         return handled();
     }
   }
