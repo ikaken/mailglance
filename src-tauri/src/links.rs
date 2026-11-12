@@ -92,7 +92,15 @@ pub fn open_gmail(app: &AppHandle, data_dir: &Path, email: &str, url: &str) -> R
 
     let nav_app = app.clone();
     let popup_app = app.clone();
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    let popup_label = label.clone();
+    // Start from Google's sign-in with Gmail as the destination. A signed-in profile passes
+    // straight through; a new one gets the sign-in form instead of Gmail's marketing page,
+    // whose "ログイン" link opens a new window and never signs this profile in.
+    let start = Url::parse_with_params(
+        "https://accounts.google.com/ServiceLogin",
+        &[("service", "mail"), ("continue", url.as_str())],
+    )?;
+    WebviewWindowBuilder::new(app, &label, WebviewUrl::External(start))
         .title(format!("Gmail - {email}"))
         .inner_size(1100.0, 800.0)
         .data_directory(gmail_webview_dir(data_dir, email))
@@ -104,7 +112,15 @@ pub fn open_gmail(app: &AppHandle, data_dir: &Path, email: &str, url: &str) -> R
             false
         })
         .on_new_window(move |u, _features| {
-            // Links clicked inside Gmail open as new windows; send them to the browser.
+            // The sign-in link on Gmail's landing page uses target=_blank. Keep it in this window
+            // so the sign-in lands in this account's profile.
+            if u.scheme() == "https" && u.host_str() == Some("accounts.google.com") {
+                if let Some(w) = popup_app.get_webview_window(&popup_label) {
+                    let _ = w.navigate(u);
+                }
+                return NewWindowResponse::Deny;
+            }
+            // Other links clicked inside Gmail open as new windows; send them to the browser.
             let _ = open_external(&popup_app, &u);
             NewWindowResponse::Deny
         })

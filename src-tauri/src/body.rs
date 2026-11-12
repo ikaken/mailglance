@@ -19,6 +19,8 @@ struct Collected<'a> {
     text: Option<&'a Part>,
     inline: Vec<(String, &'a Part)>,
     attachments: Vec<Attachment>,
+    /// Every part that carries a file, including inline images that have a filename.
+    files: Vec<&'a Part>,
 }
 
 fn collect<'a>(part: &'a Part, out: &mut Collected<'a>) {
@@ -35,6 +37,7 @@ fn collect<'a>(part: &'a Part, out: &mut Collected<'a>) {
         out.inline.push((cid, part));
     }
     if !filename.is_empty() {
+        out.files.push(part);
         out.attachments.push(Attachment {
             filename: filename.to_string(),
             size: part.body.as_ref().and_then(|b| b.size).unwrap_or(0),
@@ -120,7 +123,7 @@ pub async fn render(gmail: &Gmail<'_>, msg: &Message) -> Result<Rendered> {
     let Some(payload) = &msg.payload else {
         return Ok(Rendered { html: String::new(), attachments: vec![] });
     };
-    let mut c = Collected { html: None, text: None, inline: vec![], attachments: vec![] };
+    let mut c = Collected { html: None, text: None, inline: vec![], attachments: vec![], files: vec![] };
     collect(payload, &mut c);
 
     let mut html = match (c.html, c.text) {
@@ -159,6 +162,64 @@ pub async fn render(gmail: &Gmail<'_>, msg: &Message) -> Result<Rendered> {
     }
 
     Ok(Rendered { html, attachments: c.attachments })
+}
+
+/// What a forward needs from the original: its HTML as sent (with `cid:` references) and files.
+pub struct ForwardContent {
+    pub html: String,
+    pub files: Vec<FilePart>,
+}
+
+pub struct FilePart {
+    pub filename: String,
+    pub mime: String,
+    /// Set for images the HTML shows inline; they stay inline in the forward.
+    pub content_id: Option<String>,
+    pub data: Vec<u8>,
+}
+
+/// Gmail refuses messages above 25 MB.
+const FORWARD_LIMIT: i64 = 25 * 1024 * 1024;
+
+pub async fn forward_content(gmail: &Gmail<'_>, msg: &Message) -> Result<ForwardContent> {
+    let Some(payload) = &msg.payload else {
+        return Ok(ForwardContent { html: String::new(), files: vec![] });
+    };
+    let mut c = Collected { html: None, text: None, inline: vec![], attachments: vec![], files: vec![] };
+    collect(payload, &mut c);
+    let html = match (c.html, c.text) {
+        (Some(p), _) => part_text(p),
+        (None, Some(p)) => text_to_html(&part_text(p)),
+        (None, None) => String::new(),
+    };
+
+    let total: i64 = c.attachments.iter().map(|a| a.size).sum();
+    if total > FORWARD_LIMIT {
+        return Err(crate::error::Error::new(
+            "添付ファイルの合計が 25 MB を超えるため、転送できません。Gmail の画面から転送してください。",
+        ));
+    }
+
+    let mut files = Vec::new();
+    for part in c.files {
+        let body = part.body.as_ref();
+        let data = match (body.and_then(|b| b.data.clone()), body.and_then(|b| b.attachment_id.as_deref())) {
+            (Some(d), _) => d,
+            (None, Some(att)) => gmail.attachment(&msg.id, att).await?,
+            _ => continue,
+        };
+        let content_id = part
+            .header("Content-ID")
+            .map(|c| c.trim().trim_start_matches('<').trim_end_matches('>').to_string())
+            .filter(|cid| !cid.is_empty() && html.contains(&format!("cid:{cid}")));
+        files.push(FilePart {
+            filename: part.filename.clone().unwrap_or_default(),
+            mime: part.mime_type.clone().unwrap_or_else(|| "application/octet-stream".into()),
+            content_id,
+            data: decode_b64(&data),
+        });
+    }
+    Ok(ForwardContent { html, files })
 }
 
 #[cfg(test)]

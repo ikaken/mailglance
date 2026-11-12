@@ -1,6 +1,7 @@
 mod auth;
 mod body;
 mod cache;
+mod compose;
 mod config;
 mod error;
 mod gmail;
@@ -458,13 +459,71 @@ async fn trash_message(state: State<'_, AppState>, email: String, id: String) ->
     Ok(label_ids)
 }
 
+/// Creates a reply / reply-all / forward draft through the API and opens it in the Gmail window.
+/// Costs about 30 quota units (headers 20 + draft 10), plus 60 if the body was not cached yet.
 #[tauri::command]
-fn open_link(app: AppHandle, state: State<'_, AppState>, email: String, url: String) -> Result<()> {
+async fn compose_from(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    email: String,
+    id: String,
+    kind: compose::Kind,
+) -> Result<()> {
+    let account = state.account(&email)?;
+    let msg = state.gmail(&account).await?.reply_headers(&id).await?;
+    let header = |name: &str| {
+        msg.payload
+            .as_ref()
+            .and_then(|p| p.header(name))
+            .unwrap_or_default()
+            .to_string()
+    };
+    let original = compose::Original {
+        from: header("From"),
+        to: header("To"),
+        cc: header("Cc"),
+        reply_to: header("Reply-To"),
+        subject: header("Subject"),
+        date: header("Date"),
+        message_id: header("Message-ID"),
+        references: header("References"),
+    };
+    let plan = compose::plan(kind, &email, &original);
+    let draft = if kind == compose::Kind::Forward {
+        // Like Gmail, a forward carries the original's attachments and inline images. That needs
+        // the full message (60 units) and each attachment (20 units apiece), and the media-upload
+        // form of drafts.create, which accepts bigger messages than the JSON form.
+        let gmail = state.gmail(&account).await?;
+        let content = body::forward_content(&gmail, &gmail.full(&id).await?).await?;
+        let html = compose::quote_html(kind, &original, &content.html);
+        let mime = compose::build_mime(&plan, &html, &content.files);
+        gmail.create_draft_upload(mime.into_bytes()).await?
+    } else {
+        let quoted = load_body(&state, &account, &id).await?;
+        let raw = compose::build_raw(&plan, &compose::quote_html(kind, &original, &quoted.html));
+        let thread = plan.threaded.then_some(msg.thread_id.as_str());
+        state.gmail(&account).await?.create_draft(&raw, thread).await?
+    };
+    // The draft was made through the API, so an already-open Gmail page does not know it yet, and
+    // a change of the URL fragment alone does not reload the page: Gmail would open an empty
+    // compose window instead. A new query string forces a full load that finds the draft.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let url = format!("https://mail.google.com/mail/u/0/?mg={stamp}#drafts?compose={}", draft.message.id);
+    links::open_gmail(&app, &state.dir, &email, &url)
+}
+
+// Async on purpose: on Windows, creating a webview window from a synchronous command (which runs
+// on the main thread) leaves the new webview stuck on about:blank and the window unclosable.
+#[tauri::command]
+async fn open_link(app: AppHandle, state: State<'_, AppState>, email: String, url: String) -> Result<()> {
     links::open_link(&app, &state.dir, &email, &url)
 }
 
 #[tauri::command]
-fn open_gmail(app: AppHandle, state: State<'_, AppState>, email: String, url: String) -> Result<()> {
+async fn open_gmail(app: AppHandle, state: State<'_, AppState>, email: String, url: String) -> Result<()> {
     links::open_gmail(&app, &state.dir, &email, &url)
 }
 
@@ -499,6 +558,7 @@ pub fn run() {
             trash_message,
             open_link,
             open_gmail,
+            compose_from,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

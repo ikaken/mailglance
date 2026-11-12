@@ -1,4 +1,4 @@
-import { api, errorText, gmailUrls, type AppInfo, type Label, type Summary, type View } from "./api";
+import { api, errorText, gmailUrls, type AppInfo, type ComposeKind, type Label, type Summary, type View } from "./api";
 
 /** Polls Gmail for changes made on other devices. */
 const SYNC_INTERVAL_MS = 60_000;
@@ -287,6 +287,15 @@ class Store {
     if (after && !this.inView(after)) this.drop(m.id);
   }
 
+  /**
+   * Puts an archived or trashed message back in the inbox (taking it out of the trash).
+   * It stays in the current view unless the view was the trash.
+   */
+  async moveToInbox(m: Summary) {
+    const after = await this.modify(m, ["INBOX"], ["TRASH"]);
+    if (after && !this.inView(after)) this.drop(m.id);
+  }
+
   async trash(m: Summary) {
     try {
       const after = await api.trashMessage(this.current, m.id);
@@ -326,8 +335,24 @@ class Store {
     api.openGmail(this.current, gmailUrls.compose());
   }
 
-  reply(m: Summary) {
-    api.openGmail(this.current, gmailUrls.thread(m.thread_id));
+  /** Opens the message's thread in the account's Gmail window. */
+  openInGmail(m: Summary) {
+    api.openGmail(this.current, gmailUrls.thread(m.thread_id)).catch((e) => (this.error = errorText(e)));
+  }
+
+  /** Creates a reply / reply-all / forward draft and opens it in the Gmail window. */
+  composing = $state(false);
+  async composeFrom(m: Summary, kind: ComposeKind) {
+    if (this.composing) return;
+    this.composing = true;
+    try {
+      await api.composeFrom(this.current, m.id, kind);
+      this.error = "";
+    } catch (e) {
+      this.error = errorText(e);
+    } finally {
+      this.composing = false;
+    }
   }
 
   /** Cycles the reading pane: off → right → below → off. */
