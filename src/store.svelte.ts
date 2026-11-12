@@ -33,6 +33,17 @@ function savePref(key: string, value: unknown) {
   }
 }
 
+export type SplitMode = "off" | "right" | "below";
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(n)));
+
+function loadSplitMode(): SplitMode {
+  const v = loadPref<unknown>("splitMode", null);
+  if (v === "off" || v === "right" || v === "below") return v;
+  // Older versions stored a boolean "splitPane" (true = right).
+  return loadPref("splitPane", false) ? "right" : "off";
+}
+
 class Store {
   info = $state<AppInfo | null>(null);
   showSettings = $state(false);
@@ -52,9 +63,17 @@ class Store {
   loading = $state(false);
   error = $state("");
   searchText = $state("");
-  splitPane = $state(loadPref("splitPane", false));
+  /** Reading pane placement: off, to the right of the list, or below it. */
+  splitMode = $state<SplitMode>(loadSplitMode());
+  /** Width of the mail list with the pane on the right, height with it below (px). */
+  splitListWidth = $state(clamp(Number(loadPref("splitListWidth", 420)) || 420, 280, 1600));
+  splitListHeight = $state(clamp(Number(loadPref("splitListHeight", 320)) || 320, 120, 1600));
   sidebarCollapsed = $state(loadPref("sidebarCollapsed", false));
   sidebarWidth = $state(Math.min(480, Math.max(180, Number(loadPref("sidebarWidth", 256)) || 256)));
+
+  get splitPane() {
+    return this.splitMode !== "off";
+  }
 
   get hasNext() {
     return !!this.nextToken;
@@ -336,9 +355,20 @@ class Store {
     }
   }
 
+  /** Cycles the reading pane: off → right → below → off. */
   toggleSplitPane() {
-    this.splitPane = !this.splitPane;
-    savePref("splitPane", this.splitPane);
+    this.splitMode = this.splitMode === "off" ? "right" : this.splitMode === "right" ? "below" : "off";
+    savePref("splitMode", this.splitMode);
+  }
+
+  setSplitListWidth(w: number, max = 1600, save = false) {
+    this.splitListWidth = clamp(w, 280, Math.max(280, max));
+    if (save) savePref("splitListWidth", this.splitListWidth);
+  }
+
+  setSplitListHeight(h: number, max = 1600, save = false) {
+    this.splitListHeight = clamp(h, 120, Math.max(120, max));
+    if (save) savePref("splitListHeight", this.splitListHeight);
   }
 
   toggleSidebar() {
