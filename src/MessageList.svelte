@@ -112,22 +112,8 @@
         {#if compact}<span class="snippet line2">{cleanSnippet(m.snippet)}</span>{/if}
         <span class="date">{formatListDate(m.date)}</span>
         <span class="hover-actions">
-          {#if m.label_ids.includes("INBOX")}
-            <button class="icon-btn small" title="アーカイブ" onclick={(e) => act(e, () => store.archive(m))}>
-              <Icon name="archive" />
-            </button>
-          {/if}
-          {#if !m.label_ids.includes("TRASH")}
-            <button class="icon-btn small" title="削除" onclick={(e) => act(e, () => store.trash(m))}>
-              <Icon name="delete" />
-            </button>
-          {/if}
-          <button
-            class="icon-btn small"
-            title={unread ? "既読にする" : "未読にする"}
-            onclick={(e) => act(e, () => store.toggleUnread(m))}
-          >
-            <Icon name={unread ? "markRead" : "markUnread"} />
+          <button class="icon-btn small" title="Gmail で開く" onclick={(e) => act(e, () => store.openInGmail(m))}>
+            <Icon name="openInNew" />
           </button>
         </span>
       </div>

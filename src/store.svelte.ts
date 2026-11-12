@@ -268,6 +268,15 @@ class Store {
     if (after && !this.inView(after)) this.drop(m.id);
   }
 
+  /**
+   * Puts an archived or trashed message back in the inbox (taking it out of the trash).
+   * It stays in the current view unless the view was the trash.
+   */
+  async moveToInbox(m: Summary) {
+    const after = await this.modify(m, ["INBOX"], ["TRASH"]);
+    if (after && !this.inView(after)) this.drop(m.id);
+  }
+
   async trash(m: Summary) {
     try {
       const after = await api.trashMessage(this.current, m.id);

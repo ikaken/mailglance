@@ -303,7 +303,12 @@ impl Gmail<'_> {
     }
 
     pub async fn trash(&self, id: &str) -> Result<Message> {
-        let req = self.http.post(format!("{BASE}/messages/{id}/trash"));
+        // A POST without a body carries no Content-Length, and Google's front end answers
+        // 411 Length Required; so the header is set explicitly.
+        let req = self
+            .http
+            .post(format!("{BASE}/messages/{id}/trash"))
+            .header(reqwest::header::CONTENT_LENGTH, 0);
         self.send(req, cost::MESSAGES_TRASH).await
     }
 }

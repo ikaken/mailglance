@@ -106,6 +106,10 @@
       <button class="icon-btn" title="アーカイブ（e）" onclick={() => store.archive(message)}>
         <Icon name="archive" />
       </button>
+    {:else if !message.label_ids.some((l) => l === "SPAM" || l === "DRAFT")}
+      <button class="icon-btn" title="受信トレイに移動" onclick={() => store.moveToInbox(message)}>
+        <Icon name="inbox" />
+      </button>
     {/if}
     {#if !message.label_ids.includes("TRASH")}
       <button class="icon-btn" title="削除（#）" onclick={() => store.trash(message)}><Icon name="delete" /></button>
