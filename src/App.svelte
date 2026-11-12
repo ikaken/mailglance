@@ -91,6 +91,40 @@
     store.setSidebarWidth(256, true);
   }
 
+  // Drag the border between the mail list and the reading pane.
+  let splitEl = $state<HTMLElement>();
+  let splitResizing = $state(false);
+  function startSplitResize(ev: PointerEvent) {
+    if (!splitEl) return;
+    ev.preventDefault();
+    const el = ev.currentTarget as HTMLElement;
+    el.setPointerCapture(ev.pointerId);
+    splitResizing = true;
+    const below = store.splitMode === "below";
+    const rect = splitEl.getBoundingClientRect();
+    // Leave room for the reading pane.
+    const max = below ? rect.height - 200 : rect.width - 320;
+    const apply = (e: PointerEvent, save = false) =>
+      below
+        ? store.setSplitListHeight(e.clientY - rect.top, max, save)
+        : store.setSplitListWidth(e.clientX - rect.left, max, save);
+    const move = (e: PointerEvent) => apply(e);
+    const up = (e: PointerEvent) => {
+      splitResizing = false;
+      apply(e, true);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }
+  function resetSplitResize() {
+    if (store.splitMode === "below") store.setSplitListHeight(320, 1600, true);
+    else store.setSplitListWidth(420, 1600, true);
+  }
+
   function submitSearch(ev: SubmitEvent) {
     ev.preventDefault();
     store.search(store.searchText);
@@ -133,10 +167,17 @@
       <div class="top-actions">
         <button
           class="icon-btn"
-          title={store.splitPane ? "閲覧ウィンドウ：なし" : "閲覧ウィンドウ：右"}
+          title={store.splitMode === "off"
+            ? "閲覧ウィンドウ：なし（クリックで右に表示）"
+            : store.splitMode === "right"
+              ? "閲覧ウィンドウ：右（クリックで下に表示）"
+              : "閲覧ウィンドウ：下（クリックで非表示）"}
           onclick={() => store.toggleSplitPane()}
         >
-          <Icon name={store.splitPane ? "noSplit" : "splitPane"} size={24} />
+          <Icon
+            name={store.splitMode === "off" ? "noSplit" : store.splitMode === "right" ? "splitPane" : "splitBelow"}
+            size={24}
+          />
         </button>
         <button class="icon-btn" title="設定" onclick={() => (store.showSettings = !store.showSettings)}>
           <Icon name="settings" size={24} />
@@ -186,8 +227,21 @@
         {#if store.showSettings}
           <div class="settings-scroll"><Setup /></div>
         {:else if store.splitPane}
-          <div class="split">
-            <MessageList compact />
+          <div
+            class="split {store.splitMode}"
+            class:resizing={splitResizing}
+            bind:this={splitEl}
+            style:--list-w="{store.splitListWidth}px"
+            style:--list-h="{store.splitListHeight}px"
+          >
+            <MessageList compact={store.splitMode === "right"} />
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="split-resizer"
+              title="ドラッグで境界を移動（ダブルクリックで元に戻す）"
+              onpointerdown={startSplitResize}
+              ondblclick={resetSplitResize}
+            ></div>
             <div class="pane">
               {#if store.openMessage}
                 {#key store.openMessage.id}<MessageView message={store.openMessage} />{/key}
@@ -384,14 +438,61 @@
   .split {
     flex: 1;
     min-height: 0;
+    position: relative;
     display: grid;
-    grid-template-columns: minmax(340px, 40%) minmax(0, 1fr);
+  }
+  .split.right {
+    grid-template-columns: var(--list-w) minmax(0, 1fr);
+  }
+  .split.below {
+    grid-template-rows: var(--list-h) minmax(0, 1fr);
+  }
+  .split.resizing {
+    user-select: none;
+  }
+  .split.right.resizing {
+    cursor: col-resize;
+  }
+  .split.below.resizing {
+    cursor: row-resize;
   }
   .pane {
     min-height: 0;
     min-width: 0;
     display: flex;
     flex-direction: column;
+  }
+  .right .pane {
     border-left: 1px solid var(--divider);
+  }
+  .below .pane {
+    border-top: 1px solid var(--divider);
+  }
+  .split-resizer {
+    position: absolute;
+    z-index: 5;
+    touch-action: none;
+  }
+  .right > .split-resizer {
+    top: 0;
+    bottom: 0;
+    left: calc(var(--list-w) - 5px);
+    width: 10px;
+    cursor: col-resize;
+  }
+  .below > .split-resizer {
+    left: 0;
+    right: 0;
+    top: calc(var(--list-h) - 5px);
+    height: 10px;
+    cursor: row-resize;
+  }
+  .right > .split-resizer:hover,
+  .resizing.right > .split-resizer {
+    background: linear-gradient(to right, transparent 4px, var(--accent) 4px, var(--accent) 6px, transparent 6px);
+  }
+  .below > .split-resizer:hover,
+  .resizing.below > .split-resizer {
+    background: linear-gradient(to bottom, transparent 4px, var(--accent) 4px, var(--accent) 6px, transparent 6px);
   }
 </style>
