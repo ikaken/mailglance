@@ -44,12 +44,6 @@
       case "c":
         store.compose();
         return handled();
-      case "n":
-        store.nextPage();
-        return handled();
-      case "p":
-        store.prevPage();
-        return handled();
     }
     if (!m) return;
     switch (ev.key) {
@@ -72,6 +66,31 @@
     }
   }
 
+  // Drag the border between the label column and the mail list.
+  let resizing = $state(false);
+  function startResize(ev: PointerEvent) {
+    ev.preventDefault();
+    const el = ev.currentTarget as HTMLElement;
+    el.setPointerCapture(ev.pointerId);
+    resizing = true;
+    const startX = ev.clientX;
+    const startW = store.sidebarWidth;
+    const move = (e: PointerEvent) => store.setSidebarWidth(startW + e.clientX - startX);
+    const up = () => {
+      resizing = false;
+      store.setSidebarWidth(store.sidebarWidth, true);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }
+  function resetResize() {
+    store.setSidebarWidth(256, true);
+  }
+
   function submitSearch(ev: SubmitEvent) {
     ev.preventDefault();
     store.search(store.searchText);
@@ -86,7 +105,12 @@
 {:else if store.needsSetup}
   <div class="setup-page"><Setup /></div>
 {:else}
-  <div class="app" class:collapsed={store.sidebarCollapsed}>
+  <div
+    class="app"
+    class:collapsed={store.sidebarCollapsed}
+    class:resizing
+    style:--sidebar-w="{store.sidebarWidth}px"
+  >
     <header class="topbar">
       <div class="brand">
         <button class="icon-btn" title="メインメニュー" onclick={() => store.toggleSidebar()}>
@@ -148,6 +172,15 @@
       </nav>
 
       <Sidebar />
+      {#if !store.sidebarCollapsed}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="resizer"
+          title="ドラッグで幅を変更（ダブルクリックで元に戻す）"
+          onpointerdown={startResize}
+          ondblclick={resetResize}
+        ></div>
+      {/if}
 
       <main class="card">
         {#if store.showSettings}
@@ -270,6 +303,25 @@
     display: grid;
     grid-template-columns: 64px auto minmax(0, 1fr);
     min-height: 0;
+    position: relative;
+  }
+  .resizer {
+    position: absolute;
+    top: 0;
+    bottom: 16px;
+    left: calc(64px + var(--sidebar-w) - 12px);
+    width: 12px;
+    cursor: col-resize;
+    z-index: 5;
+    touch-action: none;
+  }
+  .resizer:hover,
+  .resizing .resizer {
+    background: linear-gradient(to right, transparent 5px, var(--accent) 5px, var(--accent) 7px, transparent 7px);
+  }
+  .resizing {
+    user-select: none;
+    cursor: col-resize;
   }
 
   .accounts {

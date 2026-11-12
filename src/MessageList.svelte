@@ -18,8 +18,7 @@
         : "すべてのメール"
       : store.labelName(store.view.id),
   );
-  const first = $derived(store.pageIndex * 50 + 1);
-  const last = $derived(store.pageIndex * 50 + store.messages.length);
+  const last = $derived(store.messages.length);
 
   function who(m: Summary): string {
     if (showRecipient) {
@@ -45,6 +44,18 @@
     rowsEl?.querySelectorAll<HTMLElement>(".row")[i]?.scrollIntoView({ block: "nearest" });
   });
 
+  // Infinite scroll: fetch the next chunk when the end comes within a few rows.
+  function loadIfNearEnd() {
+    const el = rowsEl;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 400) store.loadMore();
+  }
+  // Also when the list is too short to scroll (e.g. after archiving). Not after an error,
+  // so a failing request is not retried in a loop.
+  $effect(() => {
+    store.messages.length;
+    if (!store.loading && !store.loadingMore && !store.error) queueMicrotask(loadIfNearEnd);
+  });
+
   function act(ev: MouseEvent, fn: () => void) {
     ev.stopPropagation();
     fn();
@@ -61,22 +72,16 @@
     <div class="spacer"></div>
     {#if store.messages.length}
       <span class="range">
-        {first.toLocaleString()}–{last.toLocaleString()} / {store.estimate > last
+        {last.toLocaleString()} / {store.estimate > last
           ? store.estimate.toLocaleString()
           : last.toLocaleString()}{store.hasNext && store.estimate <= last ? "+" : ""}
       </span>
     {/if}
-    <button class="icon-btn" title="新しいメール" disabled={store.pageIndex === 0} onclick={() => store.prevPage()}>
-      <Icon name="chevronLeft" />
-    </button>
-    <button class="icon-btn" title="古いメール" disabled={!store.hasNext} onclick={() => store.nextPage()}>
-      <Icon name="chevronRight" />
-    </button>
   </div>
 
   {#if store.error}<div class="error-banner">{store.error}</div>{/if}
 
-  <div class="rows" class:compact bind:this={rowsEl}>
+  <div class="rows" class:compact bind:this={rowsEl} onscroll={loadIfNearEnd}>
     {#each store.messages as m, i (m.id)}
       {@const unread = m.label_ids.includes("UNREAD")}
       {@const starred = m.label_ids.includes("STARRED")}
@@ -129,6 +134,7 @@
     {:else}
       <div class="empty">{store.loading ? "" : "メールはありません"}</div>
     {/each}
+    {#if store.loadingMore}<div class="more">読み込み中…</div>{/if}
   </div>
 </div>
 
@@ -170,6 +176,12 @@
     color: var(--text-2);
     margin-right: 8px;
     white-space: nowrap;
+  }
+  .more {
+    padding: 12px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-3);
   }
   .rows {
     flex: 1;

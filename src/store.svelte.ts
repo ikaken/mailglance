@@ -40,10 +40,11 @@ class Store {
   labels = $state<Record<string, Label[]>>({});
   view = $state<View>(INBOX);
   messages = $state<Summary[]>([]);
-  /** pageTokens[i] fetches page i; the first page has no token. */
-  pageTokens = $state<(string | undefined)[]>([undefined]);
-  pageIndex = $state(0);
-  hasNext = $state(false);
+  /** Token for the next (older) chunk; undefined once the end is reached. */
+  nextToken = $state<string | undefined>(undefined);
+  /** How many chunks of PAGE_SIZE are loaded; the list grows as the user scrolls. */
+  chunks = $state(0);
+  loadingMore = $state(false);
   estimate = $state(0);
   openId = $state<string | null>(null);
   /** Row highlighted for keyboard navigation. */
@@ -53,6 +54,11 @@ class Store {
   searchText = $state("");
   splitPane = $state(loadPref("splitPane", false));
   sidebarCollapsed = $state(loadPref("sidebarCollapsed", false));
+  sidebarWidth = $state(Math.min(480, Math.max(180, Number(loadPref("sidebarWidth", 256)) || 256)));
+
+  get hasNext() {
+    return !!this.nextToken;
+  }
 
   get account() {
     return this.info?.accounts.find((a) => a.email === this.current);
@@ -111,28 +117,45 @@ class Store {
     this.showSettings = false;
     this.openId = null;
     this.cursor = 0;
-    this.pageTokens = [undefined];
-    this.pageIndex = 0;
-    this.hasNext = false;
+    this.nextToken = undefined;
+    this.chunks = 0;
     this.estimate = v.kind === "label" ? (this.currentLabels.find((l) => l.id === v.id)?.total ?? 0) : 0;
     this.messages = await api.cachedMessages(this.current, v).catch(() => []);
-    await this.loadPage(0);
+    await this.refreshHead();
   }
 
-  async loadPage(index: number) {
+  private setEstimate(fallback: number) {
+    // Gmail's estimate is rough for labels; the label's own count is exact.
+    const label = this.view.kind === "label" ? this.view.id : null;
+    this.estimate = this.currentLabels.find((l) => l.id === label)?.total ?? fallback;
+  }
+
+  /**
+   * Fetches the newest chunk. Costs one list call (5 units) plus metadata only for messages not
+   * cached yet, so the 60-second sync stays cheap however far the user has scrolled. Chunks
+   * already loaded stay; their labels are re-read from the cache, which the history sync updates.
+   */
+  async refreshHead() {
     const email = this.current;
     const key = viewKey(this.view);
+    const stale = () => email !== this.current || key !== viewKey(this.view);
     this.loading = true;
     try {
-      const page = await api.refreshMessages(email, this.view, this.pageTokens[index]);
-      if (email !== this.current || key !== viewKey(this.view)) return;
-      this.messages = page.messages;
-      this.pageIndex = index;
-      this.hasNext = !!page.next_page_token;
-      if (page.next_page_token) this.pageTokens[index + 1] = page.next_page_token;
-      // Gmail's estimate is rough for labels; the label's own count is exact.
-      const label = this.view.kind === "label" ? this.view.id : null;
-      this.estimate = this.currentLabels.find((l) => l.id === label)?.total ?? page.estimate;
+      const page = await api.refreshMessages(email, this.view, undefined);
+      if (stale()) return;
+      if (this.chunks <= 1) {
+        this.messages = page.messages;
+        this.nextToken = page.next_page_token ?? undefined;
+        this.chunks = 1;
+      } else {
+        const head = new Set(page.messages.map((m) => m.id));
+        const tail = this.messages.filter((m) => !head.has(m.id));
+        const fresh = await api.cachedSummaries(email, tail.map((m) => m.id)).catch(() => tail);
+        if (stale()) return;
+        this.messages = [...page.messages, ...fresh].filter((m) => this.inView(m.label_ids));
+      }
+      this.setEstimate(page.estimate);
+      this.cursor = Math.min(this.cursor, Math.max(0, this.messages.length - 1));
       this.error = "";
     } catch (e) {
       this.error = errorText(e);
@@ -141,19 +164,25 @@ class Store {
     }
   }
 
-  nextPage() {
-    if (this.hasNext && !this.loading) {
-      this.openId = null;
-      this.cursor = 0;
-      this.loadPage(this.pageIndex + 1);
-    }
-  }
-
-  prevPage() {
-    if (this.pageIndex > 0 && !this.loading) {
-      this.openId = null;
-      this.cursor = 0;
-      this.loadPage(this.pageIndex - 1);
+  /** Appends the next chunk. Called when the list is scrolled near its end. */
+  async loadMore() {
+    const token = this.nextToken;
+    if (!token || this.loadingMore || this.loading) return;
+    const email = this.current;
+    const key = viewKey(this.view);
+    this.loadingMore = true;
+    try {
+      const page = await api.refreshMessages(email, this.view, token);
+      if (email !== this.current || key !== viewKey(this.view)) return;
+      const have = new Set(this.messages.map((m) => m.id));
+      this.messages = [...this.messages, ...page.messages.filter((m) => !have.has(m.id))];
+      this.nextToken = page.next_page_token ?? undefined;
+      this.chunks += 1;
+      this.error = "";
+    } catch (e) {
+      this.error = errorText(e);
+    } finally {
+      this.loadingMore = false;
     }
   }
 
@@ -169,7 +198,7 @@ class Store {
     if (!this.info || this.needsSetup) return;
     // Labels first: it applies read/label changes from other devices to the cache.
     await Promise.all(this.info.accounts.map((a) => this.refreshLabels(a.email)));
-    if (this.current && !this.showSettings) await this.loadPage(this.pageIndex);
+    if (this.current && !this.showSettings && !this.loadingMore) await this.refreshHead();
   }
 
   search(q: string) {
@@ -196,6 +225,7 @@ class Store {
     if (i < 0) return;
     this.cursor = i;
     if (this.openId || this.splitPane) this.open(this.messages[i]);
+    if (i >= this.messages.length - 5) this.loadMore();
   }
 
   /** Applies label changes, keeping unread counts in step locally. */
@@ -289,6 +319,11 @@ class Store {
   toggleSidebar() {
     this.sidebarCollapsed = !this.sidebarCollapsed;
     savePref("sidebarCollapsed", this.sidebarCollapsed);
+  }
+
+  setSidebarWidth(w: number, save = false) {
+    this.sidebarWidth = Math.min(480, Math.max(180, Math.round(w)));
+    if (save) savePref("sidebarWidth", this.sidebarWidth);
   }
 }
 
