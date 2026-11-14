@@ -1,0 +1,62 @@
+# Weekly dependency update pull requests. Security alerts and security updates are
+# separate repository settings (Settings -> Advanced Security).
+version: 2
+
+updates:
+  # Rust crates (Tauri app)
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(cargo)"
+    groups:
+      # The tauri crates and the @tauri-apps npm packages must move to the same minor version
+      # together: merge the cargo and npm "tauri" pull requests together.
+      tauri:
+        patterns:
+          - "tauri"
+          - "tauri-*"
+      other:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "tauri"
+          - "tauri-*"
+        update-types:
+          - minor
+          - patch
+
+  # npm packages (Svelte frontend, Tauri JS packages)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(npm)"
+    groups:
+      tauri:
+        patterns:
+          - "@tauri-apps/*"
+      other:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@tauri-apps/*"
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions in .github/workflows (pinned by commit hash, kept current here)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(actions)"

@@ -52,6 +52,7 @@ npm run tauri dev
 
 - Rust のテスト：`cd src-tauri && cargo test`（宛先の計算・下書きの組み立て・文字コードなど）
 - 画面の型チェック：`npm run check`
+- 依存パッケージの更新：Dependabot（`.github/dependabot.yml`）が、毎週月曜に、Rust・npm・GitHub Actions の更新の PR を作ります。`tauri` の Rust 側と、npm の `@tauri-apps/*` は、同じバージョンに揃っている必要があります。それぞれの「tauri」の PR は、**同時にマージ**してください（片方だけだと、ビルドで版の不一致エラーになります）。
 - インストーラーの作成：`npm run tauri build`（更新用の署名が必要です。下の「配布と自動更新」を参照）
 
 ## 配布と自動更新
