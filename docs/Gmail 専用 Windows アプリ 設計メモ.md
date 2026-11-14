@@ -92,7 +92,9 @@
 - 配信先は GitHub Releases（リポジトリは公開済み）。非公開のままでは、updater が認証なしで取得できないため使えない。
 - 確認済み：ローカルのサーバーに置いた 0.1.1 を、インストール済みの 0.1.0 が見つけ、ダウンロードして、署名を検証し、インストールして、再起動し、設定とアカウントを引き継いだ。
 - リリースの自動化：`v*.*.*` のタグを push すると、GitHub Actions（Windows）が、バージョンの一致を確かめ、型チェックと Rust のテストを通し、インストーラーを作って署名し、**下書き**のリリースに `latest.json` と一緒に添付する。タグが main にないときは失敗する。下書きを人が確認して公開した時点で、利用者に更新が届く（公開前に止められる関門にする）。署名キーは、そのステップだけに渡す。使う Actions は 3 つだけで、コミットのハッシュで固定する。PR では、別のワークフローが、バージョンの一致・型チェック・Rust のテストを実行する。
-- 未実施：実際のリリース（ワークフローの動作確認）、`latest.json` のダウンロード URL の形式の確認（tauri-action v1 で、ブラウザ用の URL から GitHub の URL に変わった）、Windows のコード署名（Authenticode）、署名が合わないファイルを拒否する動作の確認。バージョン番号は 5 か所（`package.json`、`package-lock.json`、`tauri.conf.json`、`Cargo.toml`、`Cargo.lock`）にあるため、`scripts/set-version.mjs` で揃え、`scripts/check-version.mjs` で確かめる。
+- 確認済み（v0.1.0 のリリース）：ワークフローが全ステップ成功し、下書きに、インストーラー・署名・`latest.json` が添付された。公開後、`latest.json` は認証なしで取得でき、`latest.json` の URL（tauri-action v1 では GitHub の API の URL）も、更新プラグインと同じ形式のリクエストで、認証なしでダウンロードできた。ダウンロードしたファイルは、ビルドの出力とバイト単位で同じだった。インストールした 0.1.0 のアプリは、本物のリリースに対して、更新の確認ができた。
+- 注意：認証なしの GitHub API は、同じ IP から 1 時間に 60 回まで。同じ IP の多数の PC が、一斉に更新すると、上限に当たることがある。
+- 未実施：実際のリリースに対する、更新の適用（0.1.0 から 0.1.1 など）、Windows のコード署名（Authenticode）、署名が合わないファイルを拒否する動作の確認。バージョン番号は 5 か所（`package.json`、`package-lock.json`、`tauri.conf.json`、`Cargo.toml`、`Cargo.lock`）にあるため、`scripts/set-version.mjs` で揃え、`scripts/check-version.mjs` で確かめる。
 
 ## リスク
 
