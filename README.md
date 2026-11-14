@@ -69,7 +69,21 @@ npm run tauri dev
 
   `src-tauri/target/release/bundle/nsis/` に、インストーラーと署名ファイル（`.sig`）ができます。
 - 署名キーは、リポジトリに入れません。公開鍵だけが `src-tauri/tauri.conf.json` にあります。**秘密鍵をなくすと、インストール済みのアプリが更新できなくなります**（入れ直しになります）。バックアップを取ってください。
-- 公開（Releases への添付と `latest.json` の作成）の自動化は、まだありません。
+
+### リリースの手順
+
+ビルド・署名・Releases への添付は、GitHub Actions（`.github/workflows/release.yml`）が行います。
+
+1. `node scripts/set-version.mjs 0.2.0` で、バージョンを揃えます（5 つのファイルにあります）。`node scripts/check-version.mjs` で確認できます。
+2. PR を作り、main にマージします（PR では、`ci.yml` が、バージョンの一致・型チェック・Rust のテストを実行します）。
+3. main のコミットに、タグを付けて、プッシュします：`git tag v0.2.0` → `git push origin v0.2.0`。
+4. Release のワークフローが、インストーラーと署名ファイル、`latest.json` を、**下書き**のリリースに添付します。タグが main にないとき、タグとファイルのバージョンが違うときは、失敗します。
+5. 下書きの内容を確認して、「Publish release」を押します。**公開した時点で、インストール済みのアプリに、更新が案内されます**（`releases/latest/download/latest.json` は、公開済みの最新リリースを指します）。
+
+初回だけ、リポジトリの Secrets に、次の 2 つを登録します（Settings → Secrets and variables → Actions）。
+
+- `TAURI_SIGNING_PRIVATE_KEY`：秘密鍵のファイル（`mailglance.key`）の中身
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：そのパスワード
 
 ## データの保存場所
 
