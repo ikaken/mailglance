@@ -7,10 +7,18 @@
   import Setup from "./Setup.svelte";
   import Sidebar from "./Sidebar.svelte";
   import { store } from "./store.svelte";
+  import { updater } from "./updater.svelte";
 
   let searchInput = $state<HTMLInputElement>();
 
-  onMount(() => store.init());
+  onMount(() => {
+    const stopUpdater = updater.init();
+    const stopStore = store.init();
+    return () => {
+      stopUpdater();
+      stopStore?.();
+    };
+  });
 
   // Gmail keyboard shortcuts.
   function onKey(ev: KeyboardEvent) {
@@ -265,6 +273,27 @@
   </div>
 {/if}
 
+{#if updater.showNotice}
+  <div class="update-toast" role="status">
+    {#if updater.phase === "available" && updater.update}
+      <div class="update-text">
+        <strong>新しいバージョン {updater.update.version} があります</strong>
+        <span>更新するとアプリが再起動します（開いている Gmail ウィンドウも閉じます）。</span>
+      </div>
+      <div class="update-actions">
+        <button class="pill-btn" onclick={() => updater.dismiss()}>あとで</button>
+        <button class="pill-btn filled" onclick={() => updater.install()}>今すぐ更新</button>
+      </div>
+    {:else if updater.phase === "downloading"}
+      <div class="update-text">
+        <strong>更新をダウンロード中… {updater.progress >= 0 ? `${updater.progress}%` : ""}</strong>
+      </div>
+    {:else}
+      <div class="update-text"><strong>更新をインストール中です。まもなくアプリが再起動します…</strong></div>
+    {/if}
+  </div>
+{/if}
+
 <style>
   .center {
     display: flex;
@@ -499,5 +528,36 @@
   .below > .split-resizer:hover,
   .resizing.below > .split-resizer {
     background: linear-gradient(to bottom, transparent 4px, var(--accent) 4px, var(--accent) 6px, transparent 6px);
+  }
+
+  .update-toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    max-width: 520px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: var(--card);
+    border: 1px solid var(--divider);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  }
+  .update-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+  }
+  .update-text span {
+    color: var(--text-2);
+    font-size: 12px;
+  }
+  .update-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
   }
 </style>

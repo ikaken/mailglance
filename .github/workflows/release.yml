@@ -1,0 +1,70 @@
+name: Release
+
+# Push a tag such as v0.2.0 to build the Windows installer, sign the update files and attach
+# them to a DRAFT release. Publishing the draft is what makes the new version reach installed
+# apps (their updater reads latest.json from the latest published release).
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The tagged commit must be on main
+        shell: bash
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} is not on main. Merge the change first, then tag main."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Version files match the tag
+        shell: bash
+        run: node scripts/check-version.mjs "$GITHUB_REF_NAME"
+
+      - name: Type check
+        run: npm run check
+
+      - name: Rust tests
+        run: cargo test
+        working-directory: src-tauri
+
+      # The signing key is available to this step only.
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: mailglance ${{ github.ref_name }}
+          releaseBody: |
+            Windows 用のインストーラー（`mailglance_*_x64-setup.exe`）です。インストール済みのアプリは、このリリースを公開すると、アプリ内の案内から更新できます。
+
+            このインストーラーは Windows のコード署名がないため、初回のインストールで SmartScreen の警告が出ることがあります。
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
