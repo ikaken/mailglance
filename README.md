@@ -72,6 +72,8 @@ npm run tauri dev
 
 ### リリースの手順
 
+詳しい手順（Secrets の登録、公開前の確認、うまくいかないときの対処）は、[docs/リリース手順.md](docs/リリース手順.md) を参照してください。
+
 ビルド・署名・Releases への添付は、GitHub Actions（`.github/workflows/release.yml`）が行います。
 
 1. `node scripts/set-version.mjs 0.2.0` で、バージョンを揃えます（5 つのファイルにあります）。`node scripts/check-version.mjs` で確認できます。
