@@ -52,7 +52,24 @@ npm run tauri dev
 
 - Rust のテスト：`cd src-tauri && cargo test`（宛先の計算・下書きの組み立て・文字コードなど）
 - 画面の型チェック：`npm run check`
-- インストーラーの作成：`npm run tauri build`
+- インストーラーの作成：`npm run tauri build`（更新用の署名が必要です。下の「配布と自動更新」を参照）
+
+## 配布と自動更新
+
+- 配布は、NSIS のインストーラー（`mailglance_<版>_x64-setup.exe`）です。ユーザー単位でインストールされ（`%LOCALAPPDATA%\mailglance`、管理者権限は不要）、日本語の画面です。アンインストールしても、設定・キャッシュ・ログイン状態は残ります。
+- アプリは、起動の少しあとと、その後 1 日に 1 回、GitHub Releases の `latest.json` を見て、新しい版があれば画面右下に案内を出します（設定画面の「更新を確認」からも確認できます）。「今すぐ更新」で、ダウンロード、署名の検証、インストール、再起動までを行います。署名が合わないファイルは、インストールされません。
+- 更新の署名キーは、Tauri の updater 用のものです（Windows のコード署名ではありません）。インストーラーには Windows のコード署名がないため、初回のインストールで SmartScreen の警告が出ることがあります。
+- ビルドの手順：
+
+  ```powershell
+  $env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\mailglance.key"
+  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "<キーのパスワード>"
+  npm run tauri build
+  ```
+
+  `src-tauri/target/release/bundle/nsis/` に、インストーラーと署名ファイル（`.sig`）ができます。
+- 署名キーは、リポジトリに入れません。公開鍵だけが `src-tauri/tauri.conf.json` にあります。**秘密鍵をなくすと、インストール済みのアプリが更新できなくなります**（入れ直しになります）。バックアップを取ってください。
+- 公開（Releases への添付と `latest.json` の作成）の自動化は、まだありません。
 
 ## データの保存場所
 

@@ -2,6 +2,7 @@
   import { api, avatarColor, errorText, gmailUrls } from "./api";
   import Icon from "./Icon.svelte";
   import { store } from "./store.svelte";
+  import { updater } from "./updater.svelte";
 
   const info = $derived(store.info!);
   // The form starts from the saved value and is edited independently afterwards.
@@ -120,6 +121,33 @@
     </button>
   </section>
 
+  <section>
+    <h2>アプリの更新</h2>
+    <p class="hint">
+      現在のバージョン：{updater.version || "—"}。起動の少しあとと、その後 1 日に 1 回、新しいバージョンを確認します（Gmail の利用上限は使いません）。
+    </p>
+    <div class="update-row">
+      <button
+        class="pill-btn"
+        onclick={() => updater.check(true)}
+        disabled={["checking", "downloading", "installing"].includes(updater.phase)}
+      >
+        {updater.phase === "checking" ? "確認中…" : "更新を確認"}
+      </button>
+      {#if updater.phase === "uptodate"}
+        <span class="ok">最新のバージョンです。</span>
+      {:else if updater.phase === "available" && updater.update}
+        <span>新しいバージョン {updater.update.version} があります。</span>
+        <button class="pill-btn filled" onclick={() => updater.install()}>今すぐ更新</button>
+      {:else if updater.phase === "downloading"}
+        <span>ダウンロード中… {updater.progress >= 0 ? `${updater.progress}%` : ""}</span>
+      {:else if updater.phase === "installing"}
+        <span>インストール中です。まもなく再起動します…</span>
+      {/if}
+    </div>
+    {#if updater.phase === "error"}<div class="error-banner">{updater.error}</div>{/if}
+  </section>
+
   {#if message}<p class="ok">{message}</p>{/if}
   {#if error}<div class="error-banner">{error}</div>{/if}
 
@@ -165,6 +193,13 @@
     padding: 16px 20px;
     margin-bottom: 16px;
     background: var(--card);
+  }
+  .update-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
   }
   label {
     display: block;
