@@ -37,6 +37,11 @@ fn random_b64(len: usize) -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+/// PKCE (RFC 7636) S256: BASE64URL(SHA-256(code_verifier)), without padding.
+fn pkce_challenge(verifier: &str) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+}
+
 /// Runs the sign-in flow. `open` shows the consent page in the user's browser.
 pub async fn authorize(
     http: &reqwest::Client,
@@ -47,7 +52,7 @@ pub async fn authorize(
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let redirect_uri = format!("http://127.0.0.1:{}", listener.local_addr()?.port());
     let verifier = random_b64(32);
-    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    let challenge = pkce_challenge(&verifier);
     let state = random_b64(16);
 
     let auth_url = Url::parse_with_params(
@@ -196,5 +201,35 @@ pub fn load_refresh_token(email: &str) -> Result<String> {
 pub fn delete_refresh_token(email: &str) {
     if let Ok(entry) = keyring_entry(email) {
         let _ = entry.delete_credential();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The example in RFC 7636, Appendix B. Google rejects the token exchange when the challenge
+    /// computed here does not match the verifier, so a change in the hash library that altered
+    /// this result would break sign-in.
+    #[test]
+    fn pkce_challenge_matches_the_rfc_7636_example() {
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        assert_eq!(pkce_challenge(verifier), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+    }
+
+    #[test]
+    fn pkce_challenge_is_unpadded_base64url_of_32_bytes() {
+        let c = pkce_challenge("anything");
+        assert_eq!(c.len(), 43);
+        assert!(c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'));
+    }
+
+    /// RFC 7636: the verifier is 43 to 128 characters of the unreserved set.
+    #[test]
+    fn random_verifier_is_within_the_rfc_limits() {
+        let v = random_b64(32);
+        assert!((43..=128).contains(&v.len()));
+        assert!(v.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'));
+        assert_ne!(random_b64(32), v, "two verifiers must differ");
     }
 }
