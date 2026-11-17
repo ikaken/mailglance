@@ -128,6 +128,25 @@ pub fn open_gmail(app: &AppHandle, data_dir: &Path, email: &str, url: &str) -> R
     Ok(())
 }
 
+const HELP_URL: &str = "https://github.com/ikaken/mailglance/blob/main/docs/ログインエラーの対処.md";
+
+/// Opens the troubleshooting doc at the section for an error code.
+/// The URL is built here so the front end can't ask for an arbitrary address.
+pub fn open_help(app: &AppHandle, code: &str) -> Result<()> {
+    let anchor = match code {
+        "invalid_client" => "invalid_clientクライアント-シークレットが正しくありません",
+        "invalid_grant" => "invalid_grantログインの有効期限が切れました",
+        "access_denied" => "access_deniedログインが中止されました",
+        "no_login" => "ログイン情報がありません",
+        _ => "",
+    };
+    let mut url = Url::parse(HELP_URL)?;
+    if !anchor.is_empty() {
+        url.set_fragment(Some(anchor));
+    }
+    open_external(app, &url)
+}
+
 fn open_external(app: &AppHandle, url: &Url) -> Result<()> {
     if let Some(chrome) = chrome_path().filter(|_| matches!(url.scheme(), "http" | "https")) {
         std::process::Command::new(chrome).arg(url.as_str()).spawn()?;

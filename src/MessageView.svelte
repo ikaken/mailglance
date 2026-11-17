@@ -10,6 +10,7 @@
     type MessageBody,
     type Summary,
   } from "./api";
+  import ErrorBanner from "./ErrorBanner.svelte";
   import Icon from "./Icon.svelte";
   import { store } from "./store.svelte";
 
@@ -169,7 +170,7 @@
     {/if}
 
     {#if error}
-      <div class="error-banner">{error}</div>
+      <ErrorBanner message={error} />
     {:else if !body}
       <p class="loading">読み込み中…</p>
     {:else}

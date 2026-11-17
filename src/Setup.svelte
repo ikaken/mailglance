@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, avatarColor, errorText, gmailUrls } from "./api";
+  import ErrorBanner from "./ErrorBanner.svelte";
   import Icon from "./Icon.svelte";
   import { store } from "./store.svelte";
   import { updater } from "./updater.svelte";
@@ -78,7 +79,8 @@
     <h2>OAuth クライアント</h2>
     <p class="hint">
       Google Cloud で作成したデスクトップ アプリのクライアント ID とシークレットを入力します。
-      作り方はリポジトリの docs/Google Cloud クライアント ID 取得手順.md を参照してください。
+      作り方はリポジトリの docs/Google Cloud クライアント ID 取得手順.md を、
+      ログインエラーが出たときは docs/ログインエラーの対処.md を参照してください。
     </p>
     <label>クライアント ID <input bind:value={clientId} placeholder="xxxx.apps.googleusercontent.com" /></label>
     <label>
@@ -149,7 +151,7 @@
   </section>
 
   {#if message}<p class="ok">{message}</p>{/if}
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<ErrorBanner message={error} />{/if}
 
   {#if !store.needsSetup}
     <section>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { cleanSnippet, formatListDate, parseAddress, type Summary } from "./api";
+  import ErrorBanner from "./ErrorBanner.svelte";
   import Icon from "./Icon.svelte";
   import { store } from "./store.svelte";
 
@@ -79,7 +80,7 @@
     {/if}
   </div>
 
-  {#if store.error}<div class="error-banner">{store.error}</div>{/if}
+  {#if store.error}<ErrorBanner message={store.error} />{/if}
 
   <div class="rows" class:compact bind:this={rowsEl} onscroll={loadIfNearEnd}>
     {#each store.messages as m, i (m.id)}

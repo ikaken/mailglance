@@ -75,6 +75,7 @@ export const api = {
   composeFrom: (email: string, id: string, kind: ComposeKind) =>
     invoke<void>("compose_from", { email, id, kind }),
   openGmail: (email: string, url = "") => invoke<void>("open_gmail", { email, url }),
+  openHelp: (code: string) => invoke<void>("open_help", { code }),
 };
 
 export const gmailUrls = {
@@ -140,6 +141,11 @@ export function avatarColor(key: string): string {
   let h = 0;
   for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+/** The code in an error message that has a section in docs/ログインエラーの対処.md, if any. */
+export function helpCode(message: string): string | null {
+  return message.match(/invalid_client|invalid_grant|access_denied|no_login/)?.[0] ?? null;
 }
 
 export function errorText(e: unknown): string {

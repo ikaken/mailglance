@@ -527,6 +527,11 @@ async fn open_gmail(app: AppHandle, state: State<'_, AppState>, email: String, u
     links::open_gmail(&app, &state.dir, &email, &url)
 }
 
+#[tauri::command]
+fn open_help(app: AppHandle, code: String) -> Result<()> {
+    links::open_help(&app, &code)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -561,6 +566,7 @@ pub fn run() {
             open_link,
             open_gmail,
             compose_from,
+            open_help,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

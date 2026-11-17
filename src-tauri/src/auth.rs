@@ -168,7 +168,10 @@ async fn token_request(http: &reqwest::Client, form: &[(&str, &str)]) -> Result<
     let text = resp.text().await.unwrap_or_default();
     let message = match serde_json::from_str::<TokenError>(&text) {
         Ok(e) if e.error == "invalid_grant" => {
-            "ログインの有効期限が切れました。アカウントを追加し直してください。".to_string()
+            "ログインの有効期限が切れました。アカウントを追加し直してください。（invalid_grant）".to_string()
+        }
+        Ok(e) if e.error == "invalid_client" => {
+            "クライアント シークレットが正しくありません。設定画面で入れ直してください。（invalid_client）".to_string()
         }
         Ok(e) => format!("認証エラー: {} {}", e.error, e.error_description.unwrap_or_default()),
         Err(_) => format!("認証エラー: {status} {text}"),
@@ -187,7 +190,7 @@ pub fn save_refresh_token(email: &str, token: &str) -> Result<()> {
 pub fn load_refresh_token(email: &str) -> Result<String> {
     keyring_entry(email)?
         .get_password()
-        .map_err(|_| Error::new(format!("{email} のログイン情報がありません。アカウントを追加し直してください。")))
+        .map_err(|_| Error::new(format!("{email} のログイン情報がありません。アカウントを追加し直してください。（no_login）")))
 }
 
 pub fn delete_refresh_token(email: &str) {
