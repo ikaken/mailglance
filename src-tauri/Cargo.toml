@@ -1,6 +1,6 @@
 [package]
 name = "mailglance"
-version = "0.1.1"
+version = "0.1.2"
 description = "Gmail viewer for Windows that opens links in the last active Chrome window"
 authors = ["ikaken"]
 license = "MIT"
