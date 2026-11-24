@@ -25,7 +25,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 keyring = { version = "3", features = ["windows-native"] }
 base64 = "0.22"
 sha2 = "0.10"
-rand = "0.9"
+rand = "0.10"
 url = "2"
 encoding_rs = "0.8"
 futures = "0.3"
