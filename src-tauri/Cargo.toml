@@ -36,7 +36,7 @@ tauri-plugin-process = "2"
 tokio = { version = "1", features = ["rt", "macros", "test-util"] }
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55"
+winreg = "0.56"
 
 [profile.release]
 codegen-units = 1
