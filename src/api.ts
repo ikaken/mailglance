@@ -56,6 +56,7 @@ export const api = {
   saveClient: (clientId: string, clientSecret: string) =>
     invoke<void>("save_client", { clientId, clientSecret }),
   addAccount: () => invoke<string>("add_account"),
+  reconnectAccount: (email: string) => invoke<string>("reconnect_account", { email }),
   removeAccount: (email: string) => invoke<void>("remove_account", { email }),
   setFavorite: (email: string, labelId: string, on: boolean) =>
     invoke<void>("set_favorite", { email, labelId, on }),

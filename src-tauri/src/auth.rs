@@ -42,6 +42,7 @@ pub async fn authorize(
     http: &reqwest::Client,
     client_id: &str,
     client_secret: &str,
+    login_hint: Option<&str>,
     open: impl FnOnce(&str) -> Result<()>,
 ) -> Result<Tokens> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -50,7 +51,7 @@ pub async fn authorize(
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let state = random_b64(16);
 
-    let auth_url = Url::parse_with_params(
+    let mut auth_url = Url::parse_with_params(
         AUTH_URL,
         &[
             ("client_id", client_id),
@@ -64,11 +65,14 @@ pub async fn authorize(
             ("prompt", "consent select_account"),
         ],
     )?;
+    if let Some(hint) = login_hint {
+        auth_url.query_pairs_mut().append_pair("login_hint", hint);
+    }
     open(auth_url.as_str())?;
 
     let code = tokio::time::timeout(SIGN_IN_TIMEOUT, wait_for_code(&listener, &state))
         .await
-        .map_err(|_| Error::new("ログインがタイムアウトしました。もう一度お試しください。"))??;
+        .map_err(|_| Error::new("ログインがタイムアウトしました。ブラウザに Google のエラー（deleted_client など）が出ていた場合は、設定の「OAuth クライアント」を確認してください。"))??;
 
     token_request(
         http,
@@ -167,12 +171,21 @@ async fn token_request(http: &reqwest::Client, form: &[(&str, &str)]) -> Result<
     }
     let text = resp.text().await.unwrap_or_default();
     let message = match serde_json::from_str::<TokenError>(&text) {
+        // The Gmail account's sign-in is gone (expired, revoked, or issued by an older client).
         Ok(e) if e.error == "invalid_grant" => {
-            "ログインの有効期限が切れました。アカウントを追加し直してください。（invalid_grant）".to_string()
+            "【Gmail ログイン切れ】Gmail アカウントのログインが失効しました。設定で「Gmail に再ログイン」を押してください。\
+             （OAuth 同意画面の公開ステータスが「テスト」だと 7 日で切れます。「本番」にすると防げます）（invalid_grant）"
+                .to_string()
         }
-        Ok(e) if e.error == "invalid_client" => {
-            "クライアント シークレットが正しくありません。設定画面で入れ直してください。（invalid_client）".to_string()
-        }
+        // The OAuth client itself is unusable (deleted, disabled, or the ID/secret is wrong).
+        Ok(e) if matches!(
+            e.error.as_str(),
+            "invalid_client" | "deleted_client" | "disabled_client" | "unauthorized_client"
+        ) => format!(
+            "【OAuth クライアントのエラー】クライアント ID / シークレットが無効です（削除・無効化・入力ミスの可能性）。\
+             設定の「OAuth クライアント」を確認してください。（{}）",
+            e.error
+        ),
         Ok(e) => format!("認証エラー: {} {}", e.error, e.error_description.unwrap_or_default()),
         Err(_) => format!("認証エラー: {status} {text}"),
     };
@@ -190,7 +203,7 @@ pub fn save_refresh_token(email: &str, token: &str) -> Result<()> {
 pub fn load_refresh_token(email: &str) -> Result<String> {
     keyring_entry(email)?
         .get_password()
-        .map_err(|_| Error::new(format!("{email} のログイン情報がありません。アカウントを追加し直してください。（no_login）")))
+        .map_err(|_| Error::new(format!("{email} のログイン情報がありません。設定で「Gmail に再ログイン」を押してください。（no_login）")))
 }
 
 pub fn delete_refresh_token(email: &str) {

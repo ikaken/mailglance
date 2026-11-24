@@ -39,6 +39,20 @@
     }
   }
 
+  async function reconnect(account: string) {
+    error = message = "";
+    busy = true;
+    try {
+      const email = await api.reconnectAccount(account);
+      message = `${email} に再ログインしました。`;
+      await store.loadInfo(email);
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      busy = false;
+    }
+  }
+
   async function remove(email: string) {
     if (!confirm(`${email} をこのアプリから削除しますか？（Gmail のメールは消えません）`)) return;
     try {
@@ -78,7 +92,8 @@
   <section>
     <h2>OAuth クライアント</h2>
     <p class="hint">
-      Google Cloud で作成したデスクトップ アプリのクライアント ID とシークレットを入力します。
+      アプリが Google に接続するための登録情報です（Gmail のログインとは別）。Google Cloud で作成したデスクトップ
+      アプリのクライアント ID とシークレットを入力します。取り直したら、Gmail アカウント側で再ログインが必要です。
       作り方はリポジトリの docs/Google Cloud クライアント ID 取得手順.md を、
       ログインエラーが出たときは docs/ログインエラーの対処.md を参照してください。
     </p>
@@ -101,13 +116,17 @@
   </section>
 
   <section>
-    <h2>アカウント</h2>
-    <p class="hint">「アカウントを追加」を押すとブラウザで Google のログイン画面が開きます。</p>
+    <h2>Gmail アカウント</h2>
+    <p class="hint">
+      メールを読むアカウントです。ログインが切れたら「Gmail に再ログイン」を押します（上の OAuth
+      クライアントとは別です）。ブラウザで Google のログイン画面が開きます。
+    </p>
     <ul>
       {#each info.accounts as a (a.email)}
         <li>
           <span class="avatar" style:background={avatarColor(a.email)}>{a.email[0].toUpperCase()}</span>
           <span class="email">{a.email}</span>
+          <button class="pill-btn" disabled={!info.configured || busy} onclick={() => reconnect(a.email)}>Gmail に再ログイン</button>
           <button class="pill-btn" onclick={() => api.openGmail(a.email)}>Gmail を開く</button>
           <button class="pill-btn" onclick={() => api.openGmail(a.email, gmailUrls.filters())}>
             <Icon name="tune" size={18} />振り分け設定
@@ -119,7 +138,7 @@
       {/each}
     </ul>
     <button class="pill-btn filled" onclick={addAccount} disabled={!info.configured || busy}>
-      <Icon name="add" size={18} />{busy ? "ブラウザでログインしてください…" : "アカウントを追加"}
+      <Icon name="add" size={18} />{busy ? "ブラウザでログインしてください…" : "Gmail アカウントを追加"}
     </button>
   </section>
 
