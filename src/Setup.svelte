@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, avatarColor, errorText, gmailUrls } from "./api";
+  import { api, avatarColor, errorText } from "./api";
   import ErrorBanner from "./ErrorBanner.svelte";
   import Icon from "./Icon.svelte";
   import { store } from "./store.svelte";
@@ -127,10 +127,6 @@
           <span class="avatar" style:background={avatarColor(a.email)}>{a.email[0].toUpperCase()}</span>
           <span class="email">{a.email}</span>
           <button class="pill-btn" disabled={!info.configured || busy} onclick={() => reconnect(a.email)}>Gmail に再ログイン</button>
-          <button class="pill-btn" onclick={() => api.openGmail(a.email)}>Gmail を開く</button>
-          <button class="pill-btn" onclick={() => api.openGmail(a.email, gmailUrls.filters())}>
-            <Icon name="tune" size={18} />振り分け設定
-          </button>
           <button class="icon-btn" title="削除" onclick={() => remove(a.email)}><Icon name="delete" /></button>
         </li>
       {:else}
