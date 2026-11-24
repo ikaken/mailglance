@@ -220,7 +220,7 @@
             {#if n > 0}<span class="badge">{n > 999 ? "999+" : n}</span>{/if}
           </button>
         {/each}
-        <button class="icon-btn add" title="アカウントを追加" onclick={() => (store.showSettings = true)}>
+        <button class="icon-btn add" title="Gmail アカウントを追加" onclick={() => (store.showSettings = true)}>
           <Icon name="add" size={24} />
         </button>
       </nav>

@@ -158,8 +158,18 @@ fn save_client(state: State<'_, AppState>, client_id: String, client_secret: Str
 
 #[tauri::command]
 async fn add_account(app: AppHandle, state: State<'_, AppState>) -> Result<String> {
+    sign_in(app, state, None).await
+}
+
+/// Signs an already-registered account in again (expired or revoked token, new OAuth client).
+#[tauri::command]
+async fn reconnect_account(app: AppHandle, state: State<'_, AppState>, email: String) -> Result<String> {
+    sign_in(app, state, Some(email.as_str())).await
+}
+
+async fn sign_in(app: AppHandle, state: State<'_, AppState>, hint: Option<&str>) -> Result<String> {
     let (id, secret) = state.client()?;
-    let tokens = auth::authorize(&state.http, &id, &secret, |url| {
+    let tokens = auth::authorize(&state.http, &id, &secret, hint, |url| {
         app.opener()
             .open_url(url, None::<&str>)
             .map_err(|e| Error::new(e.to_string()))
@@ -172,6 +182,13 @@ async fn add_account(app: AppHandle, state: State<'_, AppState>) -> Result<Strin
     let quota = Quota::default();
     let gmail = Gmail { http: &state.http, token: tokens.access_token.clone(), quota: &quota };
     let email = gmail.profile().await?.email_address;
+    if let Some(hint) = hint {
+        if !email.eq_ignore_ascii_case(hint) {
+            return Err(Error::new(format!(
+                "{hint} ではなく {email} でログインされました。{hint} を選んでやり直してください。"
+            )));
+        }
+    }
     auth::save_refresh_token(&email, &refresh)?;
 
     {
@@ -553,6 +570,7 @@ pub fn run() {
             app_info,
             save_client,
             add_account,
+            reconnect_account,
             remove_account,
             set_favorite,
             cached_labels,
